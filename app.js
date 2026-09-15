@@ -1,5 +1,6 @@
 const defaultSpreadsheetId = "1Dsr3ZQXvHs0ZwyhovHx1TeVZbkUAHvV1-57L3SqvqtI";
 const yahooBaseUrl = window.location.protocol === "file:" ? "https://query1.finance.yahoo.com" : "/yahoo";
+const naverBaseUrl = window.location.protocol === "file:" ? "https://api.finance.naver.com" : "/naver";
 const markets = {
   한국: { gidByPeriod: { 일봉: "0", 주봉: "1097197674", 월봉: "2089529874" }, sheetName: "일봉", codeColumn: 0, nameColumn: 1, changeColumn: 2, boldColumn: 1, colorColumn: 1, source: "naver" },
   미국: { gid: "1000437246", sheetName: "미국", codeColumn: 0, nameColumn: 1, changeColumn: 2, periodColumn: 5, boldColumn: 0, colorColumn: 1, source: "yahoo" },
@@ -169,7 +170,7 @@ async function getNaverData(code, period) {
   const start = new Date(today);
   start.setDate(start.getDate() - (period === "월봉" ? 120 : 45));
   const startTime = start.toISOString().slice(0, 10).replaceAll("-", "");
-  const url = `https://api.finance.naver.com/siseJson.naver?symbol=${code}&requestType=1&startTime=${startTime}&endTime=${endTime}&timeframe=day`;
+  const url = `${naverBaseUrl}/siseJson.naver?symbol=${code}&requestType=1&startTime=${startTime}&endTime=${endTime}&timeframe=day`;
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`Volume HTTP ${response.status}`);
   const rows = JSON.parse((await response.text()).replace(/'/g, '"')).slice(1).filter((row) => Array.isArray(row) && row.length > 5);

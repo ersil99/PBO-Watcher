@@ -3,3 +3,9 @@
   to = "https://query1.finance.yahoo.com/:splat"
   status = 200
   force = true
+
+[[redirects]]
+  from = "/naver/*"
+  to = "https://api.finance.naver.com/:splat"
+  status = 200
+  force = true
