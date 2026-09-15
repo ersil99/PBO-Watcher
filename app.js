@@ -100,12 +100,13 @@ function drawChart(points) {
   const priceBottom = 330;
   const volumeTop = 370;
   const values = points.flatMap((point) => [point.high, point.low, point.ma20].filter(Number.isFinite));
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  const logValues = values.map((value) => Math.log(Math.max(value, 0.000001)));
+  const min = Math.min(...logValues);
+  const max = Math.max(...logValues);
   const span = max - min || 1;
   const maxVolume = Math.max(...points.map((point) => point.volume || 0), 1);
   const x = (index) => padding.left + (index / Math.max(points.length - 1, 1)) * (width - padding.left - padding.right);
-  const y = (value) => padding.top + (1 - (value - min) / span) * (priceBottom - padding.top);
+  const y = (value) => padding.top + (1 - (Math.log(Math.max(value, 0.000001)) - min) / span) * (priceBottom - padding.top);
   const volumeY = (value) => volumeTop + (1 - value / maxVolume) * (height - volumeTop - padding.bottom);
   const ma20Line = points.map((point, index) => Number.isFinite(point.ma20) ? `${x(index).toFixed(1)},${y(point.ma20).toFixed(1)}` : null).filter(Boolean).join(" ");
   const volumeMaLine = points.map((point, index) => Number.isFinite(point.volumeMa30) ? `${x(index).toFixed(1)},${volumeY(point.volumeMa30).toFixed(1)}` : null).filter(Boolean).join(" ");
@@ -120,14 +121,14 @@ function drawChart(points) {
   }).join("");
   const firstLabel = points[0].label;
   const lastLabel = points.at(-1).label;
-  chartPlotElement.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><line class="chart-grid" x1="${padding.left}" y1="${priceBottom + 18}" x2="${width - padding.right}" y2="${priceBottom + 18}"></line><text class="chart-label" x="${padding.left}" y="${priceBottom + 14}">가격 / 20일선</text><text class="chart-label" x="${padding.left}" y="${volumeTop - 8}">거래량 / 30일평균</text>${candles}<polyline class="chart-ma" points="${ma20Line}"></polyline><polyline class="chart-volume-ma" points="${volumeMaLine}"></polyline><text class="chart-label" x="${padding.left}" y="${height - 8}">${firstLabel}</text><text class="chart-label" text-anchor="end" x="${width - padding.right}" y="${height - 8}">${lastLabel}</text></svg>`;
+  chartPlotElement.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><line class="chart-grid" x1="${padding.left}" y1="${priceBottom + 18}" x2="${width - padding.right}" y2="${priceBottom + 18}"></line><text class="chart-label" x="${padding.left}" y="${priceBottom + 14}">로그 가격 / 20일선</text><text class="chart-label" x="${padding.left}" y="${volumeTop - 8}">거래량 / 30일평균</text>${candles}<polyline class="chart-ma" points="${ma20Line}"></polyline><polyline class="chart-volume-ma" points="${volumeMaLine}"></polyline><text class="chart-label" x="${padding.left}" y="${height - 8}">${firstLabel}</text><text class="chart-label" text-anchor="end" x="${width - padding.right}" y="${height - 8}">${lastLabel}</text></svg>`;
 }
 
 function addMovingAverages(points) {
   return points.map((point, index) => {
     const priceWindow = points.slice(Math.max(0, index - 19), index + 1).map((item) => item.close);
     const volumeWindow = points.slice(Math.max(0, index - 29), index + 1).map((item) => item.volume);
-    return { ...point, ma20: priceWindow.length === 20 ? priceWindow.reduce((sum, value) => sum + value, 0) / 20 : null, volumeMa30: volumeWindow.length === 30 ? volumeWindow.reduce((sum, value) => sum + value, 0) / 30 : null };
+    return { ...point, ma20: priceWindow.reduce((sum, value) => sum + value, 0) / priceWindow.length, volumeMa30: volumeWindow.reduce((sum, value) => sum + value, 0) / volumeWindow.length };
   });
 }
 
