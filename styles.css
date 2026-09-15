@@ -21,6 +21,7 @@ body { margin: 0; min-width: 320px; background: radial-gradient(circle at 90% 10
 .market-tabs > .rate-filter + .rate-filter { margin-left: 12px; }
 .rate-filter input { width: 16px; height: 16px; margin: 0; accent-color: var(--coral); cursor: pointer; }
 .market-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
+.market-list { display: flex; flex: 1; min-width: 0; gap: 4px; }
 .market-tab { padding: 10px 18px; background: transparent; color: var(--muted); border-bottom: 2px solid transparent; }
 .market-tab:hover, .market-tab.active { background: transparent; color: var(--deep); border-bottom-color: var(--coral); }
 .period-tabs { display: flex; gap: 4px; margin-bottom: 18px; }
@@ -93,6 +94,7 @@ footer { color: var(--muted); font: 11px "DM Mono", monospace; }
 @media (max-width: 640px) {
   .shell { padding: 20px 18px 28px; }
   .market-tabs { flex-wrap: wrap; overflow-x: visible; }
+  .market-list { flex: 0 0 100%; }
   .market-tab { flex: 1 1 25%; min-width: 0; padding-inline: 8px; }
   .market-tabs > .rate-filter:first-of-type { margin-left: 0; }
   .market-tabs > .rate-filter { flex: 0 0 auto; }
