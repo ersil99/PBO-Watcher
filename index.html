@@ -45,6 +45,17 @@
       <div id="list" class="table-wrap" aria-live="polite"></div>
     </section>
 
+    <section id="chart-panel" class="chart-panel" hidden aria-label="종목 차트">
+      <div class="chart-heading">
+        <div>
+          <strong id="chart-title">차트</strong>
+          <span id="chart-symbol"></span>
+        </div>
+        <button id="chart-close" class="chart-close" type="button" aria-label="차트 닫기">×</button>
+      </div>
+      <div id="chart-plot" class="chart-plot" role="img" aria-label="가격 차트"></div>
+    </section>
+
     <section class="toolbar" aria-label="목록 도구">
       <label class="search-box">
         <span aria-hidden="true">⌕</span>

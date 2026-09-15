@@ -22,6 +22,10 @@ const sourceToggleElement = document.querySelector("#source-toggle");
 const sourceFormElement = document.querySelector("#source-form");
 const sourceUrlElement = document.querySelector("#source-url");
 const sourceMessageElement = document.querySelector("#source-message");
+const chartPanelElement = document.querySelector("#chart-panel");
+const chartPlotElement = document.querySelector("#chart-plot");
+const chartTitleElement = document.querySelector("#chart-title");
+const chartSymbolElement = document.querySelector("#chart-symbol");
 
 function extractSpreadsheetId(value) {
   const match = value.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -78,6 +82,64 @@ function rateClass(value) {
   return value > 0 ? "positive" : value < 0 ? "negative" : "";
 }
 
+function getChartSymbol(code, market) {
+  if (market === "한국") return `${code.startsWith("0") || code.length === 6 ? "KRX" : "KOSDAQ"}:${code}`;
+  if (market === "일본") return `TSE:${code.padStart(4, "0")}`;
+  if (market === "중국") return `${code.startsWith("6") ? "SSE" : "SZSE"}:${code.padStart(6, "0")}`;
+  return code;
+}
+
+function drawChart(points) {
+  if (!points.length) {
+    chartPlotElement.innerHTML = "<div class=\"chart-empty\">차트 데이터를 불러오지 못했습니다.</div>";
+    return;
+  }
+  const width = 900;
+  const height = 360;
+  const padding = { top: 18, right: 12, bottom: 30, left: 12 };
+  const values = points.map((point) => point.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const x = (index) => padding.left + (index / Math.max(points.length - 1, 1)) * (width - padding.left - padding.right);
+  const y = (value) => padding.top + (1 - (value - min) / span) * (height - padding.top - padding.bottom);
+  const line = points.map((point, index) => `${x(index).toFixed(1)},${y(point.value).toFixed(1)}`).join(" ");
+  const area = `${padding.left},${height - padding.bottom} ${line} ${x(points.length - 1)},${height - padding.bottom}`;
+  const firstLabel = points[0].label;
+  const lastLabel = points.at(-1).label;
+  chartPlotElement.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><line class="chart-grid" x1="${padding.left}" y1="${height / 2}" x2="${width - padding.right}" y2="${height / 2}"></line><polygon class="chart-area" points="${area}"></polygon><polyline class="chart-line" points="${line}"></polyline><text class="chart-label" x="${padding.left}" y="${height - 8}">${firstLabel}</text><text class="chart-label" text-anchor="end" x="${width - padding.right}" y="${height - 8}">${lastLabel}</text></svg>`;
+}
+
+async function getChartPoints(row) {
+  const config = markets[state.market];
+  if (config.source === "naver") {
+    const today = new Date();
+    const start = new Date(today);
+    start.setDate(start.getDate() - (state.period === "월봉" ? 365 : state.period === "주봉" ? 180 : 45));
+    const formatDate = (date) => date.toISOString().slice(0, 10).replaceAll("-", "");
+    const response = await fetch(`${naverBaseUrl}/siseJson.naver?symbol=${row.code}&requestType=1&startTime=${formatDate(start)}&endTime=${formatDate(today)}&timeframe=day`, { cache: "no-store" });
+    if (!response.ok) throw new Error("chart request failed");
+    return JSON.parse((await response.text()).replace(/'/g, '"')).slice(1).filter((item) => Array.isArray(item) && Number.isFinite(Number(item[4]))).map((item) => ({ label: String(item[0]).slice(4, 6) + "/" + String(item[0]).slice(6, 8), value: Number(item[4]) }));
+  }
+  const symbol = getYahooSymbol(row.code, state.market);
+  const range = state.period === "월봉" ? "2y" : state.period === "주봉" ? "1y" : "1mo";
+  const response = await fetch(`${yahooBaseUrl}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`, { cache: "no-store" });
+  if (!response.ok) throw new Error("chart request failed");
+  const result = (await response.json()).chart.result?.[0];
+  const quote = result?.indicators?.quote?.[0];
+  return (result?.timestamp || []).map((timestamp, index) => ({ label: new Date(timestamp * 1000).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" }), value: quote?.close?.[index] })).filter((point) => Number.isFinite(point.value));
+}
+
+async function openChart(row) {
+  chartTitleElement.textContent = `${row.name} ${state.period} 차트`;
+  chartSymbolElement.textContent = row.code;
+  chartPanelElement.hidden = false;
+  chartPlotElement.innerHTML = "<div class=\"chart-empty\">차트 불러오는 중...</div>";
+  chartPanelElement.scrollIntoView({ behavior: "smooth", block: "start" });
+  try { drawChart(await getChartPoints(row)); }
+  catch { chartPlotElement.innerHTML = "<div class=\"chart-empty\">차트 데이터를 불러오지 못했습니다.</div>"; }
+}
+
 function render() {
   const query = searchElement.value.trim().toLowerCase();
   const rateHeader = state.period === "주봉" ? "이번주 등락률" : state.period === "월봉" ? "이번달 등락률" : "오늘 등락률";
@@ -110,6 +172,10 @@ function render() {
   const body = document.createElement("tbody");
   visibleRows.forEach((row) => {
     const tableRow = document.createElement("tr");
+    tableRow.dataset.code = row.code;
+    tableRow.dataset.name = row.name;
+    tableRow.tabIndex = 0;
+    tableRow.setAttribute("aria-label", `${row.name} ${state.period} 차트 열기`);
     tableRow.innerHTML = `<td><strong class="stock-name"></strong><span class="stock-code"></span></td><td><span class="rate"></span></td><td><span class="volume-change"></span><span class="volume-total"></span></td>`;
     const stockName = tableRow.querySelector(".stock-name");
     stockName.textContent = row.name;
@@ -307,6 +373,22 @@ searchElement.addEventListener("input", render);
 rateFilterElement.addEventListener("change", render);
 focusFilterElement.addEventListener("change", render);
 document.querySelector("#refresh").addEventListener("click", loadCodes);
+listElement.addEventListener("click", (event) => {
+  const rowElement = event.target.closest("tbody tr");
+  if (!rowElement) return;
+  openChart({ code: rowElement.dataset.code, name: rowElement.dataset.name });
+});
+listElement.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const rowElement = event.target.closest("tbody tr");
+  if (!rowElement) return;
+  event.preventDefault();
+  openChart({ code: rowElement.dataset.code, name: rowElement.dataset.name });
+});
+document.querySelector("#chart-close").addEventListener("click", () => {
+  chartPanelElement.hidden = true;
+  chartPlotElement.innerHTML = "";
+});
 sourceToggleElement.addEventListener("click", () => {
   sourceFormElement.hidden = !sourceFormElement.hidden;
   if (!sourceFormElement.hidden) sourceUrlElement.focus();
