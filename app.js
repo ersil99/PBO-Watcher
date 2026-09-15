@@ -95,19 +95,40 @@ function drawChart(points) {
     return;
   }
   const width = 900;
-  const height = 360;
+  const height = 500;
   const padding = { top: 18, right: 12, bottom: 30, left: 12 };
-  const values = points.map((point) => point.value);
+  const priceBottom = 330;
+  const volumeTop = 370;
+  const values = points.flatMap((point) => [point.high, point.low, point.ma20].filter(Number.isFinite));
   const min = Math.min(...values);
   const max = Math.max(...values);
   const span = max - min || 1;
+  const maxVolume = Math.max(...points.map((point) => point.volume || 0), 1);
   const x = (index) => padding.left + (index / Math.max(points.length - 1, 1)) * (width - padding.left - padding.right);
-  const y = (value) => padding.top + (1 - (value - min) / span) * (height - padding.top - padding.bottom);
-  const line = points.map((point, index) => `${x(index).toFixed(1)},${y(point.value).toFixed(1)}`).join(" ");
-  const area = `${padding.left},${height - padding.bottom} ${line} ${x(points.length - 1)},${height - padding.bottom}`;
+  const y = (value) => padding.top + (1 - (value - min) / span) * (priceBottom - padding.top);
+  const volumeY = (value) => volumeTop + (1 - value / maxVolume) * (height - volumeTop - padding.bottom);
+  const ma20Line = points.map((point, index) => Number.isFinite(point.ma20) ? `${x(index).toFixed(1)},${y(point.ma20).toFixed(1)}` : null).filter(Boolean).join(" ");
+  const volumeMaLine = points.map((point, index) => Number.isFinite(point.volumeMa30) ? `${x(index).toFixed(1)},${volumeY(point.volumeMa30).toFixed(1)}` : null).filter(Boolean).join(" ");
+  const candleWidth = Math.max(1.5, Math.min(8, (width - padding.left - padding.right) / points.length * .62));
+  const candles = points.map((point, index) => {
+    const color = point.close >= point.open ? "#16835c" : "#ef745e";
+    const center = x(index);
+    const bodyTop = y(Math.max(point.open, point.close));
+    const bodyHeight = Math.max(1, Math.abs(y(point.open) - y(point.close)));
+    const volumeHeight = height - padding.bottom - volumeY(point.volume || 0);
+    return `<line x1="${center.toFixed(1)}" y1="${y(point.high).toFixed(1)}" x2="${center.toFixed(1)}" y2="${y(point.low).toFixed(1)}" stroke="${color}" stroke-width="1"></line><rect x="${(center - candleWidth / 2).toFixed(1)}" y="${bodyTop.toFixed(1)}" width="${candleWidth.toFixed(1)}" height="${bodyHeight.toFixed(1)}" fill="${color}"></rect><rect x="${(center - candleWidth / 2).toFixed(1)}" y="${volumeY(point.volume || 0).toFixed(1)}" width="${candleWidth.toFixed(1)}" height="${volumeHeight.toFixed(1)}" fill="${color}" opacity=".42"></rect>`;
+  }).join("");
   const firstLabel = points[0].label;
   const lastLabel = points.at(-1).label;
-  chartPlotElement.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><line class="chart-grid" x1="${padding.left}" y1="${height / 2}" x2="${width - padding.right}" y2="${height / 2}"></line><polygon class="chart-area" points="${area}"></polygon><polyline class="chart-line" points="${line}"></polyline><text class="chart-label" x="${padding.left}" y="${height - 8}">${firstLabel}</text><text class="chart-label" text-anchor="end" x="${width - padding.right}" y="${height - 8}">${lastLabel}</text></svg>`;
+  chartPlotElement.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><line class="chart-grid" x1="${padding.left}" y1="${priceBottom + 18}" x2="${width - padding.right}" y2="${priceBottom + 18}"></line><text class="chart-label" x="${padding.left}" y="${priceBottom + 14}">가격 / 20일선</text><text class="chart-label" x="${padding.left}" y="${volumeTop - 8}">거래량 / 30일평균</text>${candles}<polyline class="chart-ma" points="${ma20Line}"></polyline><polyline class="chart-volume-ma" points="${volumeMaLine}"></polyline><text class="chart-label" x="${padding.left}" y="${height - 8}">${firstLabel}</text><text class="chart-label" text-anchor="end" x="${width - padding.right}" y="${height - 8}">${lastLabel}</text></svg>`;
+}
+
+function addMovingAverages(points) {
+  return points.map((point, index) => {
+    const priceWindow = points.slice(Math.max(0, index - 19), index + 1).map((item) => item.close);
+    const volumeWindow = points.slice(Math.max(0, index - 29), index + 1).map((item) => item.volume);
+    return { ...point, ma20: priceWindow.length === 20 ? priceWindow.reduce((sum, value) => sum + value, 0) / 20 : null, volumeMa30: volumeWindow.length === 30 ? volumeWindow.reduce((sum, value) => sum + value, 0) / 30 : null };
+  });
 }
 
 async function getChartPoints(row) {
@@ -119,7 +140,8 @@ async function getChartPoints(row) {
     const formatDate = (date) => date.toISOString().slice(0, 10).replaceAll("-", "");
     const response = await fetch(`${naverBaseUrl}/siseJson.naver?symbol=${row.code}&requestType=1&startTime=${formatDate(start)}&endTime=${formatDate(today)}&timeframe=day`, { cache: "no-store" });
     if (!response.ok) throw new Error("chart request failed");
-    return JSON.parse((await response.text()).replace(/'/g, '"')).slice(1).filter((item) => Array.isArray(item) && Number.isFinite(Number(item[4]))).map((item) => ({ label: String(item[0]).slice(4, 6) + "/" + String(item[0]).slice(6, 8), value: Number(item[4]) }));
+    const points = JSON.parse((await response.text()).replace(/'/g, '"')).slice(1).filter((item) => Array.isArray(item) && Number.isFinite(Number(item[4]))).map((item) => ({ label: String(item[0]).slice(4, 6) + "/" + String(item[0]).slice(6, 8), open: Number(item[1]), high: Number(item[2]), low: Number(item[3]), close: Number(item[4]), volume: Number(item[5]) || 0 }));
+    return addMovingAverages(points);
   }
   const symbol = getYahooSymbol(row.code, state.market);
   const range = state.period === "월봉" ? "2y" : state.period === "주봉" ? "1y" : "1mo";
@@ -127,7 +149,8 @@ async function getChartPoints(row) {
   if (!response.ok) throw new Error("chart request failed");
   const result = (await response.json()).chart.result?.[0];
   const quote = result?.indicators?.quote?.[0];
-  return (result?.timestamp || []).map((timestamp, index) => ({ label: new Date(timestamp * 1000).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" }), value: quote?.close?.[index] })).filter((point) => Number.isFinite(point.value));
+  const points = (result?.timestamp || []).map((timestamp, index) => ({ label: new Date(timestamp * 1000).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" }), open: quote?.open?.[index], high: quote?.high?.[index], low: quote?.low?.[index], close: quote?.close?.[index], volume: quote?.volume?.[index] || 0 })).filter((point) => [point.open, point.high, point.low, point.close].every(Number.isFinite));
+  return addMovingAverages(points);
 }
 
 async function openChart(row) {
