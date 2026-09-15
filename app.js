@@ -124,7 +124,8 @@ function render() {
     volumeChange.textContent = row.volumeChange === null ? "--" : `${row.volumeChange.toFixed(1)}%`;
     const volumeColor = row.volumeChange === null ? "" : rateClass(row.volumeChange - 100);
     if (volumeColor) volumeChange.classList.add(volumeColor);
-    tableRow.querySelector(".volume-total").textContent = row.volume === null ? "거래량 확인 불가" : `오늘 ${formatNumber(row.volume)}주`;
+    const volumeLabel = state.period === "일봉" ? "오늘" : `${state.period === "주봉" ? "이번주" : "이번달"} 일평균`;
+    tableRow.querySelector(".volume-total").textContent = row.volume === null ? "거래량 확인 불가" : `${volumeLabel} ${formatNumber(Math.round(row.volume))}주`;
     body.append(tableRow);
   });
   table.append(body);
@@ -149,10 +150,19 @@ function getPeriodVolumes(rows, period) {
   const grouped = new Map();
   rows.forEach((row) => {
     const key = getPeriodKey(String(row[0]), period);
-    grouped.set(key, (grouped.get(key) || 0) + (Number(row[5]) || 0));
+    const entry = grouped.get(key) || { total: 0, days: 0 };
+    entry.total += Number(row[5]) || 0;
+    entry.days += 1;
+    grouped.set(key, entry);
   });
   const values = [...grouped.values()];
-  return { volume: values.at(-1) || null, previousVolume: values.at(-2) || null };
+  const current = values.at(-1);
+  const previous = values.at(-2);
+  return {
+    volume: current?.days ? current.total / current.days : null,
+    previousVolume: previous?.days ? previous.total / previous.days : null,
+    currentAverageVolume: current?.days ? current.total / current.days : null,
+  };
 }
 
 function getPeriodCloses(rows, period) {
@@ -174,13 +184,13 @@ async function getNaverData(code, period) {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`Volume HTTP ${response.status}`);
   const rows = JSON.parse((await response.text()).replace(/'/g, '"')).slice(1).filter((row) => Array.isArray(row) && row.length > 5);
-  const { volume, previousVolume } = getPeriodVolumes(rows, period);
+  const { volume, previousVolume, currentAverageVolume } = getPeriodVolumes(rows, period);
   const closes = getPeriodCloses(rows, period);
   const close = closes.at(-1);
   const previousClose = closes.at(-2);
   return {
     volume: volume || null,
-    volumeChange: previousVolume ? (volume / previousVolume) * 100 : null,
+    volumeChange: previousVolume ? ((period === "일봉" ? volume : currentAverageVolume) / previousVolume) * 100 : null,
     changeRate: previousClose ? ((close - previousClose) / previousClose) * 100 : null,
   };
 }
@@ -216,18 +226,21 @@ async function getYahooData(code, market, period) {
     const volume = quote?.volume?.[index];
     if (!Number.isFinite(close)) return;
     const key = getYahooPeriodKey(timestamp, period, market);
-    const entry = grouped.get(key) || { close: null, volume: 0 };
+    const entry = grouped.get(key) || { close: null, volume: 0, days: 0 };
     entry.close = close;
     entry.volume += Number.isFinite(volume) ? volume : 0;
+    entry.days += 1;
     grouped.set(key, entry);
   });
   const periods = [...grouped.values()];
   const current = periods.at(-1);
   const previous = periods.at(-2);
+  const currentAverageVolume = current?.volume / (current?.days || 1);
+  const previousAverageVolume = previous?.volume / (previous?.days || 1);
   return {
     name: result?.meta?.longName || result?.meta?.shortName || code,
-    volume: current?.volume || null,
-    volumeChange: previous?.volume ? (current.volume / previous.volume) * 100 : null,
+    volume: currentAverageVolume || null,
+    volumeChange: previousAverageVolume ? (currentAverageVolume / previousAverageVolume) * 100 : null,
     changeRate: previous?.close ? ((current.close - previous.close) / previous.close) * 100 : null,
   };
 }
