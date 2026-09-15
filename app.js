@@ -1,9 +1,9 @@
 const defaultSpreadsheetId = "1Dsr3ZQXvHs0ZwyhovHx1TeVZbkUAHvV1-57L3SqvqtI";
 const markets = {
-  한국: { gidByPeriod: { 일봉: "0", 주봉: "1097197674", 월봉: "2089529874" }, sheetName: "일봉", codeColumn: 0, nameColumn: 1, changeColumn: 2, boldColumn: 1, source: "naver" },
-  미국: { gid: "1000437246", sheetName: "미국", codeColumn: 0, nameColumn: 1, changeColumn: 2, periodColumn: 5, boldColumn: 0, source: "yahoo" },
-  일본: { gid: "726759276", sheetName: "일본", codeColumn: 0, nameColumn: null, changeColumn: 1, periodColumn: 2, boldColumn: 0, source: "yahoo" },
-  중국: { gid: "1837366506", sheetName: "중국", codeColumn: 0, nameColumn: null, changeColumn: 1, periodColumn: 2, boldColumn: 0, source: "yahoo" },
+  한국: { gidByPeriod: { 일봉: "0", 주봉: "1097197674", 월봉: "2089529874" }, sheetName: "일봉", codeColumn: 0, nameColumn: 1, changeColumn: 2, boldColumn: 1, colorColumn: 1, source: "naver" },
+  미국: { gid: "1000437246", sheetName: "미국", codeColumn: 0, nameColumn: 1, changeColumn: 2, periodColumn: 5, boldColumn: 0, colorColumn: 1, source: "yahoo" },
+  일본: { gid: "726759276", sheetName: "일본", codeColumn: 0, nameColumn: null, changeColumn: 1, periodColumn: 2, boldColumn: 0, colorColumn: 0, source: "yahoo" },
+  중국: { gid: "1837366506", sheetName: "중국", codeColumn: 0, nameColumn: null, changeColumn: 1, periodColumn: 2, boldColumn: 0, colorColumn: 0, source: "yahoo" },
 };
 const state = { rows: [], updatedAt: null, market: "한국", period: "일봉", spreadsheetId: localStorage.getItem("pbo-source-id") || defaultSpreadsheetId };
 let loadSequence = 0;
@@ -45,23 +45,22 @@ function applySheetGids(gids) {
   });
 }
 
-function getBoldCellRefs(workbook, boldColumn) {
+function getCellFontStyles(workbook) {
   const stylesXml = new TextDecoder().decode(workbook.files["xl/styles.xml"].content);
   const sheetXml = new TextDecoder().decode(workbook.files["xl/worksheets/sheet1.xml"].content);
   const stylesDocument = new DOMParser().parseFromString(stylesXml, "application/xml");
   const sheetDocument = new DOMParser().parseFromString(sheetXml, "application/xml");
   const fonts = [...stylesDocument.querySelectorAll("fonts > font")];
   const cellFormats = [...stylesDocument.querySelectorAll("cellXfs > xf")];
-  const boldFontIds = new Set(fonts.map((font, index) => font.querySelector("b") ? index : null).filter((index) => index !== null));
-  const boldRefs = new Set();
-
-  sheetDocument.querySelectorAll(`c[r^='${boldColumn}']`).forEach((cell) => {
+  const styles = new Map();
+  sheetDocument.querySelectorAll("c[r]").forEach((cell) => {
     const styleIndex = Number(cell.getAttribute("s") || 0);
     const fontId = Number(cellFormats[styleIndex]?.getAttribute("fontId") || 0);
-    if (boldFontIds.has(fontId)) boldRefs.add(cell.getAttribute("r"));
+    const font = fonts[fontId];
+    const color = font?.querySelector("color")?.getAttribute("rgb");
+    styles.set(cell.getAttribute("r"), { bold: Boolean(font?.querySelector("b")), color: color ? `#${color.slice(-6)}` : null });
   });
-
-  return boldRefs;
+  return styles;
 }
 
 function cellText(cell) {
@@ -113,6 +112,7 @@ function render() {
     const stockName = tableRow.querySelector(".stock-name");
     stockName.textContent = row.name;
     stockName.classList.toggle("is-bold", row.bold);
+    if (row.color) stockName.style.color = row.color;
     tableRow.querySelector(".stock-code").textContent = row.code;
     const rate = tableRow.querySelector(".rate");
     rate.textContent = `${row.changeRate > 0 ? "+" : ""}${row.changeRate.toFixed(2)}%`;
@@ -153,19 +153,34 @@ function getPeriodVolumes(rows, period) {
   return { volume: values.at(-1) || null, previousVolume: values.at(-2) || null };
 }
 
+function getPeriodCloses(rows, period) {
+  const grouped = new Map();
+  rows.forEach((row) => {
+    const key = getPeriodKey(String(row[0]), period);
+    grouped.set(key, Number(row[4]));
+  });
+  return [...grouped.values()].filter((value) => Number.isFinite(value));
+}
+
 async function getNaverData(code, period) {
   const today = new Date();
   const endTime = today.toISOString().slice(0, 10).replaceAll("-", "");
   const start = new Date(today);
-  start.setDate(start.getDate() - 30);
+  start.setDate(start.getDate() - (period === "월봉" ? 120 : 45));
   const startTime = start.toISOString().slice(0, 10).replaceAll("-", "");
   const url = `https://api.finance.naver.com/siseJson.naver?symbol=${code}&requestType=1&startTime=${startTime}&endTime=${endTime}&timeframe=day`;
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`Volume HTTP ${response.status}`);
   const rows = JSON.parse((await response.text()).replace(/'/g, '"')).slice(1).filter((row) => Array.isArray(row) && row.length > 5);
   const { volume, previousVolume } = getPeriodVolumes(rows, period);
-  if (!volume) return { volume: null, volumeChange: null };
-  return { volume, volumeChange: previousVolume ? (volume / previousVolume) * 100 : null };
+  const closes = getPeriodCloses(rows, period);
+  const close = closes.at(-1);
+  const previousClose = closes.at(-2);
+  return {
+    volume: volume || null,
+    volumeChange: previousVolume ? (volume / previousVolume) * 100 : null,
+    changeRate: previousClose ? ((close - previousClose) / previousClose) * 100 : null,
+  };
 }
 
 function getYahooSymbol(code, market) {
@@ -174,31 +189,44 @@ function getYahooSymbol(code, market) {
   return code;
 }
 
+function getYahooPeriodKey(timestamp, period, market) {
+  if (period === "일봉") return new Intl.DateTimeFormat("en-CA", { timeZone: market === "일본" ? "Asia/Tokyo" : market === "중국" ? "Asia/Shanghai" : "America/New_York" }).format(new Date(timestamp * 1000));
+  const date = new Date(timestamp * 1000);
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: market === "일본" ? "Asia/Tokyo" : market === "중국" ? "Asia/Shanghai" : "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  if (period === "월봉") return `${values.year}-${values.month}`;
+  const localDate = new Date(`${values.year}-${values.month}-${values.day}T00:00:00Z`);
+  const day = localDate.getUTCDay() || 7;
+  localDate.setUTCDate(localDate.getUTCDate() - day + 1);
+  return localDate.toISOString().slice(0, 10);
+}
+
 async function getYahooData(code, market, period) {
   const symbol = getYahooSymbol(code, market);
-  const rateInterval = period === "주봉" ? "1wk" : period === "월봉" ? "1mo" : "1d";
-  const rateRange = period === "월봉" ? "2y" : period === "주봉" ? "1y" : "1mo";
-  const dailyResponse = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1mo&interval=1d`, { cache: "no-store" });
-  const rateResponse = rateInterval === "1d"
-    ? dailyResponse
-    : await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${rateRange}&interval=${rateInterval}`, { cache: "no-store" });
-  if (!dailyResponse.ok || !rateResponse.ok) throw new Error("Yahoo 시세를 읽을 수 없습니다.");
-  const dailyResult = (await dailyResponse.json()).chart.result?.[0];
-  const rateResult = rateInterval === "1d" ? dailyResult : (await rateResponse.json()).chart.result?.[0];
-  const dailyQuote = dailyResult?.indicators?.quote?.[0];
-  const rateQuote = rateResult?.indicators?.quote?.[0];
-  const volumeQuote = rateInterval === "1d" ? dailyQuote : rateQuote;
-  const volumes = (volumeQuote?.volume || []).filter((value) => Number.isFinite(value));
-  const closes = (rateQuote?.close || []).filter((value) => Number.isFinite(value));
-  const volume = volumes.at(-1) ?? null;
-  const previousVolume = volumes.at(-2);
-  const close = closes.at(-1);
-  const previousClose = closes.at(-2);
+  const range = period === "월봉" ? "2y" : period === "주봉" ? "1y" : "1mo";
+  const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`, { cache: "no-store" });
+  if (!response.ok) throw new Error("Yahoo 시세를 읽을 수 없습니다.");
+  const result = (await response.json()).chart.result?.[0];
+  const quote = result?.indicators?.quote?.[0];
+  const grouped = new Map();
+  (result?.timestamp || []).forEach((timestamp, index) => {
+    const close = quote?.close?.[index];
+    const volume = quote?.volume?.[index];
+    if (!Number.isFinite(close)) return;
+    const key = getYahooPeriodKey(timestamp, period, market);
+    const entry = grouped.get(key) || { close: null, volume: 0 };
+    entry.close = close;
+    entry.volume += Number.isFinite(volume) ? volume : 0;
+    grouped.set(key, entry);
+  });
+  const periods = [...grouped.values()];
+  const current = periods.at(-1);
+  const previous = periods.at(-2);
   return {
-    name: rateResult?.meta?.longName || rateResult?.meta?.shortName || code,
-    volume,
-    volumeChange: previousVolume ? (volume / previousVolume) * 100 : null,
-    changeRate: previousClose ? ((close - previousClose) / previousClose) * 100 : null,
+    name: result?.meta?.longName || result?.meta?.shortName || code,
+    volume: current?.volume || null,
+    volumeChange: previous?.volume ? (current.volume / previous.volume) * 100 : null,
+    changeRate: previous?.close ? ((current.close - previous.close) / previous.close) * 100 : null,
   };
 }
 
@@ -216,7 +244,7 @@ async function loadCodes() {
     const workbook = XLSX.read(await response.arrayBuffer(), { cellStyles: true, cellNF: true, bookFiles: true });
     const sheet = workbook.Sheets[workbook.SheetNames.find((name) => name === config.sheetName) || workbook.SheetNames[0]];
     if (!sheet) throw new Error(`${market} 시트를 찾을 수 없습니다.`);
-    const boldCellRefs = getBoldCellRefs(workbook, XLSX.utils.encode_col(config.boldColumn));
+    const cellFontStyles = getCellFontStyles(workbook);
 
     const range = XLSX.utils.decode_range(sheet["!ref"] || "A1:B1");
     const rows = [];
@@ -225,16 +253,19 @@ async function loadCodes() {
       const name = config.nameColumn === null ? code : cellText(sheet[XLSX.utils.encode_cell({ r: row, c: config.nameColumn })]);
       const changeRate = Number(cellText(sheet[XLSX.utils.encode_cell({ r: row, c: config.changeColumn })]).replace(/,/g, ""));
       const boldCellRef = XLSX.utils.encode_cell({ r: row, c: config.boldColumn });
+      const colorCellRef = XLSX.utils.encode_cell({ r: row, c: config.colorColumn });
+      const boldStyle = cellFontStyles.get(boldCellRef);
+      const colorStyle = cellFontStyles.get(colorCellRef);
       const periodValue = config.periodColumn === undefined ? period : cellText(sheet[XLSX.utils.encode_cell({ r: row, c: config.periodColumn })]);
       const matchesPeriod = config.periodColumn === undefined
         || (period === "일봉" ? !periodValue || periodValue === "일봉" : periodValue === period);
-      if (code && matchesPeriod) rows.push({ code, name, changeRate: Number.isFinite(changeRate) ? changeRate : 0, bold: boldCellRefs.has(boldCellRef) });
+      if (code && matchesPeriod) rows.push({ code, name, changeRate: Number.isFinite(changeRate) ? changeRate : 0, hasSheetRate: Number.isFinite(changeRate), bold: Boolean(boldStyle?.bold), color: colorStyle?.color });
     }
 
     const enrichedRows = await Promise.all(rows.map(async (row) => {
       try {
         const quote = config.source === "naver" ? await getNaverData(row.code, period) : await getYahooData(row.code, market, period);
-        return { ...row, ...quote, changeRate: config.source === "yahoo" && quote.changeRate !== null ? quote.changeRate : row.changeRate };
+        return { ...row, ...quote, changeRate: quote.changeRate ?? row.changeRate };
       }
       catch { return { ...row, volume: null, volumeChange: null }; }
     }));
