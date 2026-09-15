@@ -1,0 +1,5 @@
+[[redirects]]
+  from = "/yahoo/*"
+  to = "https://query1.finance.yahoo.com/:splat"
+  status = 200
+  force = true

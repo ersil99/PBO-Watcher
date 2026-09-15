@@ -1,4 +1,5 @@
 const defaultSpreadsheetId = "1Dsr3ZQXvHs0ZwyhovHx1TeVZbkUAHvV1-57L3SqvqtI";
+const yahooBaseUrl = window.location.protocol === "file:" ? "https://query1.finance.yahoo.com" : "/yahoo";
 const markets = {
   한국: { gidByPeriod: { 일봉: "0", 주봉: "1097197674", 월봉: "2089529874" }, sheetName: "일봉", codeColumn: 0, nameColumn: 1, changeColumn: 2, boldColumn: 1, colorColumn: 1, source: "naver" },
   미국: { gid: "1000437246", sheetName: "미국", codeColumn: 0, nameColumn: 1, changeColumn: 2, periodColumn: 5, boldColumn: 0, colorColumn: 1, source: "yahoo" },
@@ -204,7 +205,7 @@ function getYahooPeriodKey(timestamp, period, market) {
 async function getYahooData(code, market, period) {
   const symbol = getYahooSymbol(code, market);
   const range = period === "월봉" ? "2y" : period === "주봉" ? "1y" : "1mo";
-  const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`, { cache: "no-store" });
+  const response = await fetch(`${yahooBaseUrl}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`, { cache: "no-store" });
   if (!response.ok) throw new Error("Yahoo 시세를 읽을 수 없습니다.");
   const result = (await response.json()).chart.result?.[0];
   const quote = result?.indicators?.quote?.[0];
