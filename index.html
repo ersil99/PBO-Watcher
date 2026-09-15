@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="일봉 시트에서 B열이 굵은 종목코드만 보여주는 페이지">
+  <title>일봉 Bold 종목</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <nav class="market-tabs" aria-label="시장 선택">
+      <button class="market-tab active" type="button" data-market="한국">한국</button>
+      <button class="market-tab" type="button" data-market="미국">미국</button>
+      <button class="market-tab" type="button" data-market="일본">일본</button>
+      <button class="market-tab" type="button" data-market="중국">중국</button>
+      <label class="rate-filter">
+        <input id="focus-filter" type="checkbox" checked>
+        <span>포커스리스트</span>
+      </label>
+      <label class="rate-filter">
+        <input id="rate-filter" type="checkbox" checked>
+        <span>등락률 2%이상</span>
+      </label>
+    </nav>
+    <nav class="period-tabs" aria-label="기간 선택">
+      <button class="period-tab active" type="button" data-period="일봉">일봉</button>
+      <button class="period-tab" type="button" data-period="주봉">주봉</button>
+      <button class="period-tab" type="button" data-period="월봉">월봉</button>
+    </nav>
+
+    <section class="list-section" aria-labelledby="list-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">MATCHED ROWS</p>
+          <h3 id="list-title">오늘의 Bold 종목</h3>
+        </div>
+        <span id="status" class="status" role="status">시트 연결 중</span>
+      </div>
+      <div id="list" class="table-wrap" aria-live="polite"></div>
+    </section>
+
+    <section class="toolbar" aria-label="목록 도구">
+      <label class="search-box">
+        <span aria-hidden="true">⌕</span>
+        <input id="search" type="search" placeholder="종목코드 또는 종목명 검색" autocomplete="off">
+      </label>
+      <button id="refresh" type="button"><span aria-hidden="true">↻</span> 새로고침</button>
+    </section>
+
+    <section class="source-section" aria-label="데이터 소스 변경">
+      <button id="source-toggle" class="source-button" type="button">소스변경</button>
+      <form id="source-form" class="source-form" hidden>
+        <label for="source-url">스프레드시트 URL</label>
+        <div class="source-input-row">
+          <input id="source-url" type="url" placeholder="https://docs.google.com/spreadsheets/d/..." required>
+          <button type="submit">적용</button>
+        </div>
+        <p id="source-message" class="source-message" role="status"></p>
+      </form>
+    </section>
+
+    <span id="count" class="sr-only">--</span>
+    <span id="updated" class="sr-only">불러오는 중</span>
+
+    <footer>데이터 출처: Google Sheets · 마지막 확인 <span id="footer-time">-</span></footer>
+  </main>
+
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
