@@ -7,25 +7,37 @@ const markets = {
   일본: { gid: "726759276", sheetName: "일본", codeColumn: 0, nameColumn: null, changeColumn: 1, periodColumn: 2, boldColumn: 0, colorColumn: 0, source: "yahoo" },
   중국: { gid: "1837366506", sheetName: "중국", codeColumn: 0, nameColumn: null, changeColumn: 1, periodColumn: 2, boldColumn: 0, colorColumn: 0, source: "yahoo" },
 };
-const state = { rows: [], updatedAt: null, market: "한국", period: "일봉", spreadsheetId: localStorage.getItem("pbo-source-id") || defaultSpreadsheetId };
+const state = { rows: [], updatedAt: null, market: "한국", period: "일봉", spreadsheetId: typeof localStorage !== "undefined" ? localStorage.getItem("pbo-source-id") || defaultSpreadsheetId : defaultSpreadsheetId, tabCache: new Map(), isLoading: false };
 let loadSequence = 0;
 const liveRefreshInterval = 15000;
-const listElement = document.querySelector("#list");
-const countElement = document.querySelector("#count");
-const updatedElement = document.querySelector("#updated");
-const footerTimeElement = document.querySelector("#footer-time");
-const statusElement = document.querySelector("#status");
-const searchElement = document.querySelector("#search");
-const rateFilterElement = document.querySelector("#rate-filter");
-const focusFilterElement = document.querySelector("#focus-filter");
-const sourceToggleElement = document.querySelector("#source-toggle");
-const sourceFormElement = document.querySelector("#source-form");
-const sourceUrlElement = document.querySelector("#source-url");
-const sourceMessageElement = document.querySelector("#source-message");
-const chartPanelElement = document.querySelector("#chart-panel");
-const chartPlotElement = document.querySelector("#chart-plot");
-const chartTitleElement = document.querySelector("#chart-title");
-const chartSymbolElement = document.querySelector("#chart-symbol");
+
+function buildTabCacheKey(market, period) {
+  return `${market}|${period}`;
+}
+
+function readCachedRows(market, period) {
+  const key = buildTabCacheKey(market, period);
+  return state.tabCache.get(key) || null;
+}
+
+if (typeof module !== "undefined") module.exports = { buildTabCacheKey };
+
+const listElement = typeof document !== "undefined" ? document.querySelector("#list") : null;
+const countElement = typeof document !== "undefined" ? document.querySelector("#count") : null;
+const updatedElement = typeof document !== "undefined" ? document.querySelector("#updated") : null;
+const footerTimeElement = typeof document !== "undefined" ? document.querySelector("#footer-time") : null;
+const statusElement = typeof document !== "undefined" ? document.querySelector("#status") : null;
+const searchElement = typeof document !== "undefined" ? document.querySelector("#search") : null;
+const rateFilterElement = typeof document !== "undefined" ? document.querySelector("#rate-filter") : null;
+const focusFilterElement = typeof document !== "undefined" ? document.querySelector("#focus-filter") : null;
+const sourceToggleElement = typeof document !== "undefined" ? document.querySelector("#source-toggle") : null;
+const sourceFormElement = typeof document !== "undefined" ? document.querySelector("#source-form") : null;
+const sourceUrlElement = typeof document !== "undefined" ? document.querySelector("#source-url") : null;
+const sourceMessageElement = typeof document !== "undefined" ? document.querySelector("#source-message") : null;
+const chartPanelElement = typeof document !== "undefined" ? document.querySelector("#chart-panel") : null;
+const chartPlotElement = typeof document !== "undefined" ? document.querySelector("#chart-plot") : null;
+const chartTitleElement = typeof document !== "undefined" ? document.querySelector("#chart-title") : null;
+const chartSymbolElement = typeof document !== "undefined" ? document.querySelector("#chart-symbol") : null;
 
 function extractSpreadsheetId(value) {
   const match = value.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -182,10 +194,19 @@ function render() {
   countElement.textContent = query ? `${visibleRows.length}/${state.rows.length}` : state.rows.length;
   listElement.innerHTML = "";
 
+  const statusText = statusElement ? statusElement.textContent : "";
+  if (state.isLoading || statusText.includes("시트 읽는 중") || statusText.includes("데이터 확인 중") || statusText.includes("로딩 중")) {
+    const loading = document.createElement("p");
+    loading.className = "empty";
+    loading.textContent = "로딩 중...";
+    listElement.append(loading);
+    return;
+  }
+
   if (!visibleRows.length) {
     const empty = document.createElement("p");
     empty.className = "empty";
-    empty.textContent = state.rows.length ? "검색 결과가 없습니다." : "표시할 종목이 없습니다.";
+    empty.textContent = "검색 결과가 없습니다.";
     listElement.append(empty);
     return;
   }
@@ -339,10 +360,24 @@ async function loadCodes() {
   const requestId = ++loadSequence;
   const market = state.market;
   const period = state.period;
+  const key = buildTabCacheKey(market, period);
+  const cached = readCachedRows(market, period);
+  state.isLoading = !cached;
+  if (cached) {
+    state.rows = cached.rows;
+    state.updatedAt = cached.updatedAt;
+    if (statusElement) statusElement.textContent = `${state.rows.length}개 종목 확인`;
+    if (updatedElement) updatedElement.textContent = `${cached.updatedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 기준`;
+    if (footerTimeElement) footerTimeElement.textContent = cached.updatedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+    render();
+  } else {
+    if (statusElement) statusElement.textContent = "시트 읽는 중";
+    if (updatedElement) updatedElement.textContent = "데이터 확인 중";
+    render();
+  }
+
   const config = markets[market];
   const gid = config.gidByPeriod?.[period] || config.gid;
-  statusElement.textContent = "시트 읽는 중";
-  updatedElement.textContent = "데이터 확인 중";
   try {
     const response = await fetch(`https://docs.google.com/spreadsheets/d/${state.spreadsheetId}/export?format=xlsx&gid=${gid}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -367,6 +402,18 @@ async function loadCodes() {
       if (code && matchesPeriod) rows.push({ code, name, changeRate: Number.isFinite(changeRate) ? changeRate : 0, hasSheetRate: Number.isFinite(changeRate), bold: Boolean(boldStyle?.bold), color: colorStyle?.color });
     }
 
+    const initialRows = rows.map((row) => ({ ...row, volume: null, volumeChange: null }));
+    if (requestId !== loadSequence) return;
+    state.rows = initialRows;
+    state.updatedAt = new Date();
+    state.isLoading = false;
+    state.tabCache.set(key, { rows: initialRows, updatedAt: state.updatedAt });
+    const time = state.updatedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+    if (updatedElement) updatedElement.textContent = `${time} 기준`;
+    if (footerTimeElement) footerTimeElement.textContent = time;
+    if (statusElement) statusElement.textContent = `${state.rows.length}개 종목 확인`;
+    render();
+
     const enrichedRows = await Promise.all(rows.map(async (row) => {
       try {
         const quote = config.source === "naver" ? await getNaverData(row.code, period) : await getYahooData(row.code, market, period);
@@ -377,78 +424,105 @@ async function loadCodes() {
     if (requestId !== loadSequence) return;
     state.rows = enrichedRows;
     state.updatedAt = new Date();
-    const time = state.updatedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
-    updatedElement.textContent = `${time} 기준`;
-    footerTimeElement.textContent = time;
-    statusElement.textContent = `${state.rows.length}개 종목 확인`;
+    state.tabCache.set(key, { rows: enrichedRows, updatedAt: state.updatedAt });
+    const refreshedTime = state.updatedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+    if (updatedElement) updatedElement.textContent = `${refreshedTime} 기준`;
+    if (footerTimeElement) footerTimeElement.textContent = refreshedTime;
+    if (statusElement) statusElement.textContent = `${state.rows.length}개 종목 확인`;
     render();
   } catch (error) {
     if (requestId !== loadSequence) return;
-    state.rows = [];
-    countElement.textContent = "!";
-    statusElement.textContent = "불러오기 실패";
-    updatedElement.textContent = "다시 시도해 주세요";
-    listElement.innerHTML = "<p class=\"empty\">시트 데이터를 가져오지 못했습니다. 원본 시트 공개 설정과 네트워크 연결을 확인한 뒤 새로고침해 주세요.</p>";
+    state.rows = cached ? cached.rows : [];
+    if (countElement) countElement.textContent = cached ? state.rows.length : "!";
+    if (statusElement) statusElement.textContent = cached ? `${state.rows.length}개 종목 확인` : "불러오기 실패";
+    if (updatedElement) updatedElement.textContent = cached ? `${cached.updatedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 기준` : "다시 시도해 주세요";
+    if (cached) {
+      render();
+      return;
+    }
+    if (listElement) listElement.innerHTML = "<p class=\"empty\">시트 데이터를 가져오지 못했습니다. 원본 시트 공개 설정과 네트워크 연결을 확인한 뒤 새로고침해 주세요.</p>";
     console.error(error);
   }
 }
 
-searchElement.addEventListener("input", render);
-rateFilterElement.addEventListener("change", render);
-focusFilterElement.addEventListener("change", render);
-document.querySelector("#refresh").addEventListener("click", loadCodes);
-listElement.addEventListener("click", (event) => {
-  const rowElement = event.target.closest("tbody tr");
-  if (!rowElement) return;
-  openChart({ code: rowElement.dataset.code, name: rowElement.dataset.name });
-});
-listElement.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter" && event.key !== " ") return;
-  const rowElement = event.target.closest("tbody tr");
-  if (!rowElement) return;
-  event.preventDefault();
-  openChart({ code: rowElement.dataset.code, name: rowElement.dataset.name });
-});
-document.querySelector("#chart-close").addEventListener("click", () => {
-  chartPanelElement.hidden = true;
-  chartPlotElement.innerHTML = "";
-});
-sourceToggleElement.addEventListener("click", () => {
-  sourceFormElement.hidden = !sourceFormElement.hidden;
-  if (!sourceFormElement.hidden) sourceUrlElement.focus();
-});
-sourceFormElement.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const nextId = extractSpreadsheetId(sourceUrlElement.value.trim());
-  if (!nextId) {
-    sourceMessageElement.textContent = "Google Sheets URL을 확인해 주세요.";
-    return;
-  }
-  sourceMessageElement.textContent = "시트 탭을 확인하는 중...";
-  try {
-    applySheetGids(await discoverSheetGids(nextId));
-    state.spreadsheetId = nextId;
-    localStorage.setItem("pbo-source-id", nextId);
-    sourceMessageElement.textContent = "소스가 변경되었습니다.";
+if (typeof document !== "undefined") {
+  searchElement.addEventListener("input", render);
+  rateFilterElement.addEventListener("change", render);
+  focusFilterElement.addEventListener("change", render);
+  document.querySelector("#refresh").addEventListener("click", loadCodes);
+  listElement.addEventListener("click", (event) => {
+    const rowElement = event.target.closest("tbody tr");
+    if (!rowElement) return;
+    openChart({ code: rowElement.dataset.code, name: rowElement.dataset.name });
+  });
+  listElement.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const rowElement = event.target.closest("tbody tr");
+    if (!rowElement) return;
+    event.preventDefault();
+    openChart({ code: rowElement.dataset.code, name: rowElement.dataset.name });
+  });
+  document.querySelector("#chart-close").addEventListener("click", () => {
+    chartPanelElement.hidden = true;
+    chartPlotElement.innerHTML = "";
+  });
+  sourceToggleElement.addEventListener("click", () => {
+    sourceFormElement.hidden = !sourceFormElement.hidden;
+    if (!sourceFormElement.hidden) sourceUrlElement.focus();
+  });
+  sourceFormElement.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const nextId = extractSpreadsheetId(sourceUrlElement.value.trim());
+    if (!nextId) {
+      sourceMessageElement.textContent = "Google Sheets URL을 확인해 주세요.";
+      return;
+    }
+    sourceMessageElement.textContent = "시트 탭을 확인하는 중...";
+    try {
+      applySheetGids(await discoverSheetGids(nextId));
+      state.spreadsheetId = nextId;
+      localStorage.setItem("pbo-source-id", nextId);
+      sourceMessageElement.textContent = "소스가 변경되었습니다.";
+      loadCodes();
+    } catch (error) {
+      sourceMessageElement.textContent = error.message;
+    }
+  });
+  document.querySelectorAll(".market-tab").forEach((tab) => tab.addEventListener("click", () => {
+    const previousRows = state.rows;
+    state.market = tab.dataset.market;
+    document.querySelectorAll(".market-tab").forEach((item) => item.classList.toggle("active", item === tab));
+    searchElement.value = "";
+    const cached = readCachedRows(state.market, state.period);
+    state.isLoading = !cached;
+    if (statusElement) statusElement.textContent = cached ? `${cached.rows.length}개 종목 확인` : "시트 읽는 중";
+    if (updatedElement) updatedElement.textContent = cached ? `${cached.updatedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 기준` : "데이터 확인 중";
+    if (cached) {
+      state.rows = cached.rows;
+      state.updatedAt = cached.updatedAt;
+    } else {
+      state.rows = previousRows;
+    }
+    render();
     loadCodes();
-  } catch (error) {
-    sourceMessageElement.textContent = error.message;
-  }
-});
-document.querySelectorAll(".market-tab").forEach((tab) => tab.addEventListener("click", () => {
-  state.market = tab.dataset.market;
-  document.querySelectorAll(".market-tab").forEach((item) => item.classList.toggle("active", item === tab));
-  searchElement.value = "";
-  state.rows = [];
-  render();
+  }));
+  document.querySelectorAll(".period-tab").forEach((tab) => tab.addEventListener("click", () => {
+    const previousRows = state.rows;
+    state.period = tab.dataset.period;
+    document.querySelectorAll(".period-tab").forEach((item) => item.classList.toggle("active", item === tab));
+    const cached = readCachedRows(state.market, state.period);
+    state.isLoading = !cached;
+    if (statusElement) statusElement.textContent = cached ? `${cached.rows.length}개 종목 확인` : "시트 읽는 중";
+    if (updatedElement) updatedElement.textContent = cached ? `${cached.updatedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 기준` : "데이터 확인 중";
+    if (cached) {
+      state.rows = cached.rows;
+      state.updatedAt = cached.updatedAt;
+    } else {
+      state.rows = previousRows;
+    }
+    render();
+    loadCodes();
+  }));
   loadCodes();
-}));
-document.querySelectorAll(".period-tab").forEach((tab) => tab.addEventListener("click", () => {
-  state.period = tab.dataset.period;
-  document.querySelectorAll(".period-tab").forEach((item) => item.classList.toggle("active", item === tab));
-  state.rows = [];
-  render();
-  loadCodes();
-}));
-loadCodes();
-setInterval(loadCodes, liveRefreshInterval);
+  setInterval(loadCodes, liveRefreshInterval);
+}
