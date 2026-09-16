@@ -7,7 +7,7 @@ const markets = {
   일본: { gid: "726759276", sheetName: "일본", codeColumn: 0, nameColumn: null, changeColumn: 1, periodColumn: 2, boldColumn: 0, colorColumn: 0, source: "yahoo" },
   중국: { gid: "1837366506", sheetName: "중국", codeColumn: 0, nameColumn: null, changeColumn: 1, periodColumn: 2, boldColumn: 0, colorColumn: 0, source: "yahoo" },
 };
-const state = { rows: [], updatedAt: null, market: "한국", period: "일봉", spreadsheetId: typeof localStorage !== "undefined" ? localStorage.getItem("pbo-source-id") || defaultSpreadsheetId : defaultSpreadsheetId, tabCache: new Map(), isLoading: false, loadingKey: null };
+const state = { rows: [], updatedAt: null, market: "한국", period: "일봉", spreadsheetId: typeof localStorage !== "undefined" ? localStorage.getItem("pbo-source-id") || defaultSpreadsheetId : defaultSpreadsheetId, sourceType: typeof localStorage !== "undefined" ? localStorage.getItem("pbo-source-type") || "xlsx" : "xlsx", tabCache: new Map(), isLoading: false, loadingKey: null };
 let loadSequence = 0;
 const liveRefreshInterval = 15000;
 
@@ -40,8 +40,12 @@ const chartTitleElement = typeof document !== "undefined" ? document.querySelect
 const chartSymbolElement = typeof document !== "undefined" ? document.querySelector("#chart-symbol") : null;
 
 function extractSpreadsheetId(value) {
-  const match = value.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  const match = value.match(/\/spreadsheets\/d\/(?:e\/)?([a-zA-Z0-9-_]+)/);
   return match ? match[1] : null;
+}
+
+function isPublishedSpreadsheet(value) {
+  return /\/spreadsheets\/d\/e\//.test(value) || value.includes("/pubhtml");
 }
 
 async function discoverSheetGids(spreadsheetId) {
@@ -52,6 +56,46 @@ async function discoverSheetGids(spreadsheetId) {
   const pattern = /\[\d+,\d+,\\"(\d+)\\",\[\{\\"1\\":\[\[0,0,\\"([^\\]+)\\"/g;
   for (const match of html.matchAll(pattern)) gids[match[2]] = match[1];
   return gids;
+}
+
+async function discoverPublishedSheetGids(publishedId) {
+  const baseUrl = `https://docs.google.com/spreadsheets/d/e/${publishedId}/pubhtml`;
+  const response = await fetch(baseUrl, { cache: "no-store" });
+  if (!response.ok) throw new Error("게시된 스프레드시트에 접근할 수 없습니다.");
+  const html = await response.text();
+  const gids = {};
+  const pattern = /items\.push\(\{name:\s*\\?"([^"\\]+)\\?"[\s\S]*?gid:\s*\\?"(\d+)/g;
+  for (const match of html.matchAll(pattern)) gids[match[1]] = match[2];
+  return gids;
+}
+
+async function readPublishedRows(publishedId, gid, config, period) {
+  const url = `https://docs.google.com/spreadsheets/d/e/${publishedId}/pubhtml/sheet?headers=false&gid=${gid}`;
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) throw new Error("게시된 시트 데이터를 읽을 수 없습니다.");
+  const html = await response.text();
+  const document = new DOMParser().parseFromString(html, "text/html");
+  const styleMap = new Map();
+  for (const match of html.matchAll(/\.s(\d+)\{([^}]+)\}/g)) {
+    styleMap.set(`s${match[1]}`, match[2]);
+  }
+  const rows = [];
+  for (const tableRow of document.querySelectorAll("table tr")) {
+    const cells = [...tableRow.querySelectorAll(":scope > td")];
+    if (!cells.length) continue;
+    const code = cellText({ v: cells[config.codeColumn]?.textContent });
+    const name = config.nameColumn === null ? "" : cellText({ v: cells[config.nameColumn]?.textContent });
+    const changeRate = Number(cellText({ v: cells[config.changeColumn]?.textContent }).replace(/,/g, ""));
+    const periodValue = config.periodColumn === undefined ? period : cellText({ v: cells[config.periodColumn]?.textContent });
+    const matchesPeriod = config.periodColumn === undefined
+      || (period === "일봉" ? !periodValue || periodValue === "일봉" : periodValue === period);
+    if (!code || code === "종목코드" || !matchesPeriod) continue;
+    const boldStyle = styleMap.get(cells[config.boldColumn]?.className) || "";
+    const colorStyle = styleMap.get(cells[config.colorColumn]?.className) || "";
+    const color = colorStyle.match(/color:(#[0-9a-f]{6})/i)?.[1] || null;
+    rows.push({ code, name: name || code, changeRate: Number.isFinite(changeRate) ? changeRate : 0, hasSheetRate: Number.isFinite(changeRate), bold: /font-weight:bold/.test(boldStyle), color });
+  }
+  return rows;
 }
 
 function applySheetGids(gids) {
@@ -385,27 +429,30 @@ async function loadCodes() {
   const config = markets[market];
   const gid = config.gidByPeriod?.[period] || config.gid;
   try {
-    const response = await fetch(`https://docs.google.com/spreadsheets/d/${state.spreadsheetId}/export?format=xlsx&gid=${gid}`, { cache: "no-store" });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const workbook = XLSX.read(await response.arrayBuffer(), { cellStyles: true, cellNF: true, bookFiles: true });
-    const sheet = workbook.Sheets[workbook.SheetNames.find((name) => name === config.sheetName) || workbook.SheetNames[0]];
-    if (!sheet) throw new Error(`${market} 시트를 찾을 수 없습니다.`);
-    const cellFontStyles = getCellFontStyles(workbook);
-
-    const range = XLSX.utils.decode_range(sheet["!ref"] || "A1:B1");
     const rows = [];
-    for (let row = range.s.r + 1; row <= range.e.r; row += 1) {
-      const code = cellText(sheet[XLSX.utils.encode_cell({ r: row, c: config.codeColumn })]);
-      const name = config.nameColumn === null ? code : cellText(sheet[XLSX.utils.encode_cell({ r: row, c: config.nameColumn })]);
-      const changeRate = Number(cellText(sheet[XLSX.utils.encode_cell({ r: row, c: config.changeColumn })]).replace(/,/g, ""));
-      const boldCellRef = XLSX.utils.encode_cell({ r: row, c: config.boldColumn });
-      const colorCellRef = XLSX.utils.encode_cell({ r: row, c: config.colorColumn });
-      const boldStyle = cellFontStyles.get(boldCellRef);
-      const colorStyle = cellFontStyles.get(colorCellRef);
-      const periodValue = config.periodColumn === undefined ? period : cellText(sheet[XLSX.utils.encode_cell({ r: row, c: config.periodColumn })]);
-      const matchesPeriod = config.periodColumn === undefined
-        || (period === "일봉" ? !periodValue || periodValue === "일봉" : periodValue === period);
-      if (code && matchesPeriod) rows.push({ code, name, changeRate: Number.isFinite(changeRate) ? changeRate : 0, hasSheetRate: Number.isFinite(changeRate), bold: Boolean(boldStyle?.bold), color: colorStyle?.color });
+    if (state.sourceType === "published") {
+      rows.push(...await readPublishedRows(state.spreadsheetId, gid, config, period));
+    } else {
+      const response = await fetch(`https://docs.google.com/spreadsheets/d/${state.spreadsheetId}/export?format=xlsx&gid=${gid}`, { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const workbook = XLSX.read(await response.arrayBuffer(), { cellStyles: true, cellNF: true, bookFiles: true });
+      const sheet = workbook.Sheets[workbook.SheetNames.find((name) => name === config.sheetName) || workbook.SheetNames[0]];
+      if (!sheet) throw new Error(`${market} 시트를 찾을 수 없습니다.`);
+      const cellFontStyles = getCellFontStyles(workbook);
+      const range = XLSX.utils.decode_range(sheet["!ref"] || "A1:B1");
+      for (let row = range.s.r + 1; row <= range.e.r; row += 1) {
+        const code = cellText(sheet[XLSX.utils.encode_cell({ r: row, c: config.codeColumn })]);
+        const name = config.nameColumn === null ? code : cellText(sheet[XLSX.utils.encode_cell({ r: row, c: config.nameColumn })]);
+        const changeRate = Number(cellText(sheet[XLSX.utils.encode_cell({ r: row, c: config.changeColumn })]).replace(/,/g, ""));
+        const boldCellRef = XLSX.utils.encode_cell({ r: row, c: config.boldColumn });
+        const colorCellRef = XLSX.utils.encode_cell({ r: row, c: config.colorColumn });
+        const boldStyle = cellFontStyles.get(boldCellRef);
+        const colorStyle = cellFontStyles.get(colorCellRef);
+        const periodValue = config.periodColumn === undefined ? period : cellText(sheet[XLSX.utils.encode_cell({ r: row, c: config.periodColumn })]);
+        const matchesPeriod = config.periodColumn === undefined
+          || (period === "일봉" ? !periodValue || periodValue === "일봉" : periodValue === period);
+        if (code && matchesPeriod) rows.push({ code, name, changeRate: Number.isFinite(changeRate) ? changeRate : 0, hasSheetRate: Number.isFinite(changeRate), bold: Boolean(boldStyle?.bold), color: colorStyle?.color });
+      }
     }
 
     const initialRows = rows.map((row) => ({ ...row, volume: null, volumeChange: null }));
@@ -483,16 +530,21 @@ if (typeof document !== "undefined") {
   });
   sourceFormElement.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const nextId = extractSpreadsheetId(sourceUrlElement.value.trim());
+    const sourceUrl = sourceUrlElement.value.trim();
+    const nextId = extractSpreadsheetId(sourceUrl);
     if (!nextId) {
-      sourceMessageElement.textContent = "Google Sheets URL을 확인해 주세요.";
+      sourceMessageElement.textContent = "Google Sheets 게시 링크 또는 원본 URL을 확인해 주세요.";
       return;
     }
     sourceMessageElement.textContent = "시트 탭을 확인하는 중...";
     try {
-      applySheetGids(await discoverSheetGids(nextId));
+      const nextSourceType = isPublishedSpreadsheet(sourceUrl) ? "published" : "xlsx";
+      const gids = nextSourceType === "published" ? await discoverPublishedSheetGids(nextId) : await discoverSheetGids(nextId);
+      applySheetGids(gids);
       state.spreadsheetId = nextId;
+      state.sourceType = nextSourceType;
       localStorage.setItem("pbo-source-id", nextId);
+      localStorage.setItem("pbo-source-type", nextSourceType);
       sourceMessageElement.textContent = "소스가 변경되었습니다.";
       loadCodes();
     } catch (error) {
