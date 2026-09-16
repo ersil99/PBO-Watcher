@@ -7,7 +7,7 @@ const markets = {
   일본: { gid: "726759276", sheetName: "일본", codeColumn: 0, nameColumn: null, changeColumn: 1, periodColumn: 2, boldColumn: 0, colorColumn: 0, source: "yahoo" },
   중국: { gid: "1837366506", sheetName: "중국", codeColumn: 0, nameColumn: null, changeColumn: 1, periodColumn: 2, boldColumn: 0, colorColumn: 0, source: "yahoo" },
 };
-const state = { rows: [], updatedAt: null, market: "한국", period: "일봉", spreadsheetId: typeof localStorage !== "undefined" ? localStorage.getItem("pbo-source-id") || defaultSpreadsheetId : defaultSpreadsheetId, tabCache: new Map(), isLoading: false };
+const state = { rows: [], updatedAt: null, market: "한국", period: "일봉", spreadsheetId: typeof localStorage !== "undefined" ? localStorage.getItem("pbo-source-id") || defaultSpreadsheetId : defaultSpreadsheetId, tabCache: new Map(), isLoading: false, loadingKey: null };
 let loadSequence = 0;
 const liveRefreshInterval = 15000;
 
@@ -180,6 +180,7 @@ function render() {
   const query = searchElement.value.trim().toLowerCase();
   const rateHeader = state.period === "주봉" ? "이번주 등락률" : state.period === "월봉" ? "이번달 등락률" : "오늘 등락률";
   const volumeHeader = state.period === "주봉" ? "전주 대비 거래량" : state.period === "월봉" ? "전월 대비 거래량" : "전일 대비 오늘 거래량";
+  const currentKey = buildTabCacheKey(state.market, state.period);
   const visibleRows = state.rows
     .filter((row) => !focusFilterElement.checked || row.bold)
     .filter((row) => !rateFilterElement.checked || row.changeRate >= 2)
@@ -195,7 +196,8 @@ function render() {
   listElement.innerHTML = "";
 
   const statusText = statusElement ? statusElement.textContent : "";
-  if (state.isLoading || statusText.includes("시트 읽는 중") || statusText.includes("데이터 확인 중") || statusText.includes("로딩 중")) {
+  const isCurrentLoading = state.loadingKey === currentKey || state.isLoading || statusText.includes("시트 읽는 중") || statusText.includes("데이터 확인 중") || statusText.includes("로딩 중");
+  if (isCurrentLoading) {
     const loading = document.createElement("p");
     loading.className = "empty";
     loading.textContent = "로딩 중...";
@@ -203,7 +205,7 @@ function render() {
     return;
   }
 
-  if (!visibleRows.length) {
+  if (!visibleRows.length && state.rows.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty";
     empty.textContent = "검색 결과가 없습니다.";
@@ -363,6 +365,7 @@ async function loadCodes() {
   const key = buildTabCacheKey(market, period);
   const cached = readCachedRows(market, period);
   state.isLoading = !cached;
+  state.loadingKey = cached ? null : key;
   if (cached) {
     state.rows = cached.rows;
     state.updatedAt = cached.updatedAt;
@@ -407,6 +410,7 @@ async function loadCodes() {
     state.rows = initialRows;
     state.updatedAt = new Date();
     state.isLoading = false;
+    state.loadingKey = null;
     state.tabCache.set(key, { rows: initialRows, updatedAt: state.updatedAt });
     const time = state.updatedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
     if (updatedElement) updatedElement.textContent = `${time} 기준`;
@@ -424,6 +428,8 @@ async function loadCodes() {
     if (requestId !== loadSequence) return;
     state.rows = enrichedRows;
     state.updatedAt = new Date();
+    state.isLoading = false;
+    state.loadingKey = null;
     state.tabCache.set(key, { rows: enrichedRows, updatedAt: state.updatedAt });
     const refreshedTime = state.updatedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
     if (updatedElement) updatedElement.textContent = `${refreshedTime} 기준`;
@@ -432,6 +438,8 @@ async function loadCodes() {
     render();
   } catch (error) {
     if (requestId !== loadSequence) return;
+    state.isLoading = false;
+    state.loadingKey = null;
     state.rows = cached ? cached.rows : [];
     if (countElement) countElement.textContent = cached ? state.rows.length : "!";
     if (statusElement) statusElement.textContent = cached ? `${state.rows.length}개 종목 확인` : "불러오기 실패";
@@ -489,37 +497,31 @@ if (typeof document !== "undefined") {
     }
   });
   document.querySelectorAll(".market-tab").forEach((tab) => tab.addEventListener("click", () => {
-    const previousRows = state.rows;
     state.market = tab.dataset.market;
     document.querySelectorAll(".market-tab").forEach((item) => item.classList.toggle("active", item === tab));
     searchElement.value = "";
     const cached = readCachedRows(state.market, state.period);
+    const nextKey = buildTabCacheKey(state.market, state.period);
     state.isLoading = !cached;
+    state.loadingKey = cached ? null : nextKey;
+    state.rows = cached ? cached.rows : state.rows;
+    state.updatedAt = cached ? cached.updatedAt : state.updatedAt;
     if (statusElement) statusElement.textContent = cached ? `${cached.rows.length}개 종목 확인` : "시트 읽는 중";
     if (updatedElement) updatedElement.textContent = cached ? `${cached.updatedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 기준` : "데이터 확인 중";
-    if (cached) {
-      state.rows = cached.rows;
-      state.updatedAt = cached.updatedAt;
-    } else {
-      state.rows = previousRows;
-    }
     render();
     loadCodes();
   }));
   document.querySelectorAll(".period-tab").forEach((tab) => tab.addEventListener("click", () => {
-    const previousRows = state.rows;
     state.period = tab.dataset.period;
     document.querySelectorAll(".period-tab").forEach((item) => item.classList.toggle("active", item === tab));
     const cached = readCachedRows(state.market, state.period);
+    const nextKey = buildTabCacheKey(state.market, state.period);
     state.isLoading = !cached;
+    state.loadingKey = cached ? null : nextKey;
+    state.rows = cached ? cached.rows : state.rows;
+    state.updatedAt = cached ? cached.updatedAt : state.updatedAt;
     if (statusElement) statusElement.textContent = cached ? `${cached.rows.length}개 종목 확인` : "시트 읽는 중";
     if (updatedElement) updatedElement.textContent = cached ? `${cached.updatedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 기준` : "데이터 확인 중";
-    if (cached) {
-      state.rows = cached.rows;
-      state.updatedAt = cached.updatedAt;
-    } else {
-      state.rows = previousRows;
-    }
     render();
     loadCodes();
   }));
