@@ -7,7 +7,10 @@ const markets = {
   일본: { gid: "726759276", sheetName: "일본", codeColumn: 0, nameColumn: null, changeColumn: 1, periodColumn: 2, boldColumn: 0, colorColumn: 0, source: "yahoo" },
   중국: { gid: "1837366506", sheetName: "중국", codeColumn: 0, nameColumn: null, changeColumn: 1, periodColumn: 2, boldColumn: 0, colorColumn: 0, source: "yahoo" },
 };
-const state = { rows: [], updatedAt: null, market: "한국", period: "일봉", spreadsheetId: typeof localStorage !== "undefined" ? localStorage.getItem("pbo-source-id") || defaultSpreadsheetId : defaultSpreadsheetId, sourceType: typeof localStorage !== "undefined" ? localStorage.getItem("pbo-source-type") || "xlsx" : "xlsx", tabCache: new Map(), isLoading: false, loadingKey: null };
+const savedSourceType = typeof localStorage !== "undefined" ? localStorage.getItem("pbo-source-type") || "xlsx" : "xlsx";
+const savedSpreadsheetId = typeof localStorage !== "undefined" ? localStorage.getItem("pbo-source-id") || defaultSpreadsheetId : defaultSpreadsheetId;
+const savedSourceUrl = typeof localStorage !== "undefined" ? localStorage.getItem("pbo-source-url") || "" : "";
+const state = { rows: [], updatedAt: null, market: "한국", period: "일봉", spreadsheetId: savedSpreadsheetId, sourceType: savedSourceType, sourceUrl: savedSourceUrl, tabCache: new Map(), isLoading: false, loadingKey: null };
 let loadSequence = 0;
 const liveRefreshInterval = 15000;
 
@@ -46,6 +49,12 @@ function extractSpreadsheetId(value) {
 
 function isPublishedSpreadsheet(value) {
   return /\/spreadsheets\/d\/e\//.test(value) || value.includes("/pubhtml");
+}
+
+function getStoredSourceUrl() {
+  if (state.sourceUrl) return state.sourceUrl;
+  if (state.sourceType === "published") return `https://docs.google.com/spreadsheets/d/e/${state.spreadsheetId}/pubhtml`;
+  return `https://docs.google.com/spreadsheets/d/${state.spreadsheetId}/edit`;
 }
 
 async function discoverSheetGids(spreadsheetId) {
@@ -92,7 +101,7 @@ async function readPublishedRows(publishedId, gid, config, period) {
     if (!code || code === "종목코드" || !matchesPeriod) continue;
     const boldStyle = styleMap.get(cells[config.boldColumn]?.className) || "";
     const colorStyle = styleMap.get(cells[config.colorColumn]?.className) || "";
-    const color = colorStyle.match(/color:(#[0-9a-f]{6})/i)?.[1] || null;
+    const color = colorStyle.match(/(?:^|;)color:\s*(#[0-9a-f]{6})/i)?.[1] || null;
     rows.push({ code, name: name || code, changeRate: Number.isFinite(changeRate) ? changeRate : 0, hasSheetRate: Number.isFinite(changeRate), bold: /font-weight:bold/.test(boldStyle), color });
   }
   return rows;
@@ -136,6 +145,14 @@ function formatNumber(value) {
 
 function rateClass(value) {
   return value > 0 ? "positive" : value < 0 ? "negative" : "";
+}
+
+function readableTextColor(color) {
+  const match = String(color || "").match(/^#([0-9a-f]{6})$/i);
+  if (!match) return null;
+  const [red, green, blue] = [0, 2, 4].map((index) => Number.parseInt(match[1].slice(index, index + 2), 16));
+  const luminance = (red * 299 + green * 587 + blue * 114) / 1000;
+  return luminance < 220 ? match[0] : null;
 }
 
 function getChartSymbol(code, market) {
@@ -271,7 +288,8 @@ function render() {
     const stockName = tableRow.querySelector(".stock-name");
     stockName.textContent = row.name;
     stockName.classList.toggle("is-bold", row.bold);
-    if (row.color) stockName.style.color = row.color;
+    const textColor = readableTextColor(row.color);
+    if (textColor) stockName.style.color = textColor;
     tableRow.querySelector(".stock-code").textContent = row.code;
     const rate = tableRow.querySelector(".rate");
     rate.textContent = `${row.changeRate > 0 ? "+" : ""}${row.changeRate.toFixed(2)}%`;
@@ -459,13 +477,14 @@ async function loadCodes() {
     if (requestId !== loadSequence) return;
     state.rows = initialRows;
     state.updatedAt = new Date();
-    state.isLoading = false;
-    state.loadingKey = null;
+    const needsNameLookup = config.nameColumn === null;
+    state.isLoading = needsNameLookup;
+    state.loadingKey = needsNameLookup ? key : null;
     state.tabCache.set(key, { rows: initialRows, updatedAt: state.updatedAt });
     const time = state.updatedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
     if (updatedElement) updatedElement.textContent = `${time} 기준`;
     if (footerTimeElement) footerTimeElement.textContent = time;
-    if (statusElement) statusElement.textContent = `${state.rows.length}개 종목 확인`;
+    if (statusElement) statusElement.textContent = needsNameLookup ? `${state.rows.length}개 종목 이름 확인 중` : `${state.rows.length}개 종목 확인`;
     render();
 
     const enrichedRows = await Promise.all(rows.map(async (row) => {
@@ -476,7 +495,7 @@ async function loadCodes() {
       catch { return { ...row, volume: null, volumeChange: null }; }
     }));
     if (requestId !== loadSequence) return;
-    state.rows = enrichedRows;
+    state.rows = enrichedRows.map((row) => ({ ...row, name: row.name && row.name !== row.code ? row.name : row.code }));
     state.updatedAt = new Date();
     state.isLoading = false;
     state.loadingKey = null;
@@ -543,8 +562,10 @@ if (typeof document !== "undefined") {
       applySheetGids(gids);
       state.spreadsheetId = nextId;
       state.sourceType = nextSourceType;
+      state.sourceUrl = sourceUrl;
       localStorage.setItem("pbo-source-id", nextId);
       localStorage.setItem("pbo-source-type", nextSourceType);
+      localStorage.setItem("pbo-source-url", sourceUrl);
       sourceMessageElement.textContent = "소스가 변경되었습니다.";
       loadCodes();
     } catch (error) {
@@ -580,6 +601,22 @@ if (typeof document !== "undefined") {
     render();
     loadCodes();
   }));
-  loadCodes();
-  setInterval(loadCodes, liveRefreshInterval);
+  sourceUrlElement.value = getStoredSourceUrl();
+  if (!state.sourceUrl) {
+    state.sourceUrl = sourceUrlElement.value;
+    localStorage.setItem("pbo-source-url", state.sourceUrl);
+  }
+  (async () => {
+    try {
+      const gids = state.sourceType === "published"
+        ? await discoverPublishedSheetGids(state.spreadsheetId)
+        : await discoverSheetGids(state.spreadsheetId);
+      applySheetGids(gids);
+      if (state.sourceUrl) sourceMessageElement.textContent = "저장된 소스를 사용 중입니다.";
+    } catch (error) {
+      if (state.sourceUrl) sourceMessageElement.textContent = error.message;
+    }
+    loadCodes();
+    setInterval(loadCodes, liveRefreshInterval);
+  })();
 }
