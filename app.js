@@ -205,7 +205,7 @@ function render() {
     return;
   }
 
-  if (!visibleRows.length && state.rows.length === 0) {
+  if (!visibleRows.length && state.rows.length === 0 && !state.isLoading && state.loadingKey === null) {
     const empty = document.createElement("p");
     empty.className = "empty";
     empty.textContent = "검색 결과가 없습니다.";
@@ -366,6 +366,9 @@ async function loadCodes() {
   const cached = readCachedRows(market, period);
   state.isLoading = !cached;
   state.loadingKey = cached ? null : key;
+  if (!cached) {
+    state.rows = [];
+  }
   if (cached) {
     state.rows = cached.rows;
     state.updatedAt = cached.updatedAt;
@@ -504,7 +507,7 @@ if (typeof document !== "undefined") {
     const nextKey = buildTabCacheKey(state.market, state.period);
     state.isLoading = !cached;
     state.loadingKey = cached ? null : nextKey;
-    state.rows = cached ? cached.rows : state.rows;
+    state.rows = cached ? cached.rows : [];
     state.updatedAt = cached ? cached.updatedAt : state.updatedAt;
     if (statusElement) statusElement.textContent = cached ? `${cached.rows.length}개 종목 확인` : "시트 읽는 중";
     if (updatedElement) updatedElement.textContent = cached ? `${cached.updatedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 기준` : "데이터 확인 중";
@@ -518,7 +521,7 @@ if (typeof document !== "undefined") {
     const nextKey = buildTabCacheKey(state.market, state.period);
     state.isLoading = !cached;
     state.loadingKey = cached ? null : nextKey;
-    state.rows = cached ? cached.rows : state.rows;
+    state.rows = cached ? cached.rows : [];
     state.updatedAt = cached ? cached.updatedAt : state.updatedAt;
     if (statusElement) statusElement.textContent = cached ? `${cached.rows.length}개 종목 확인` : "시트 읽는 중";
     if (updatedElement) updatedElement.textContent = cached ? `${cached.updatedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 기준` : "데이터 확인 중";
