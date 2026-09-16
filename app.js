@@ -3,7 +3,7 @@ const yahooBaseUrl = window.location.protocol === "file:" ? "https://query1.fina
 const naverBaseUrl = window.location.protocol === "file:" ? "https://api.finance.naver.com" : "/naver";
 const markets = {
   한국: { gidByPeriod: { 일봉: "0", 주봉: "1097197674", 월봉: "2089529874" }, sheetName: "일봉", codeColumn: 0, nameColumn: 1, changeColumn: 2, boldColumn: 1, colorColumn: 1, source: "naver" },
-  미국: { gid: "1000437246", sheetName: "미국", codeColumn: 0, nameColumn: 1, changeColumn: 2, periodColumn: 5, boldColumn: 0, colorColumn: 1, source: "yahoo" },
+  미국: { gid: "1000437246", sheetName: "미국", codeColumn: 0, nameColumn: 1, changeColumn: 2, periodColumn: 5, boldColumn: 0, colorColumn: 0, colorTarget: "code", source: "yahoo" },
   일본: { gid: "726759276", sheetName: "일본", codeColumn: 0, nameColumn: null, changeColumn: 1, periodColumn: 2, boldColumn: 0, colorColumn: 0, source: "yahoo" },
   중국: { gid: "1837366506", sheetName: "중국", codeColumn: 0, nameColumn: null, changeColumn: 1, periodColumn: 2, boldColumn: 0, colorColumn: 0, source: "yahoo" },
 };
@@ -290,7 +290,9 @@ function render() {
     stockName.classList.toggle("is-bold", row.bold);
     const textColor = readableTextColor(row.color);
     if (textColor) stockName.style.color = textColor;
-    tableRow.querySelector(".stock-code").textContent = row.code;
+    const stockCode = tableRow.querySelector(".stock-code");
+    stockCode.textContent = row.code;
+    if (textColor && markets[state.market].colorTarget === "code") stockCode.style.color = textColor;
     const rate = tableRow.querySelector(".rate");
     rate.textContent = `${row.changeRate > 0 ? "+" : ""}${row.changeRate.toFixed(2)}%`;
     const rateColor = rateClass(row.changeRate);
