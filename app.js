@@ -12,7 +12,8 @@ const savedSpreadsheetId = typeof localStorage !== "undefined" ? localStorage.ge
 const savedSourceUrl = typeof localStorage !== "undefined" ? localStorage.getItem("pbo-source-url") || "" : "";
 const state = { rows: [], updatedAt: null, market: "한국", period: "일봉", spreadsheetId: savedSpreadsheetId, sourceType: savedSourceType, sourceUrl: savedSourceUrl, tabCache: new Map(), isLoading: false, loadingKey: null };
 let loadSequence = 0;
-const liveRefreshInterval = 15000;
+const sourceStorageKeys = ["pbo-source-id", "pbo-source-type", "pbo-source-url"];
+const sourceChannel = typeof document !== "undefined" && typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("pbo-source-sync") : null;
 
 function buildTabCacheKey(market, period) {
   return `${market}|${period}`;
@@ -21,6 +22,47 @@ function buildTabCacheKey(market, period) {
 function readCachedRows(market, period) {
   const key = buildTabCacheKey(market, period);
   return state.tabCache.get(key) || null;
+}
+
+function clearSourceCache() {
+  state.tabCache.clear();
+  state.rows = [];
+  state.updatedAt = null;
+}
+
+function applyStoredSource(source) {
+  if (!source?.id || !source.type) return false;
+  const changed = state.spreadsheetId !== source.id || state.sourceType !== source.type || state.sourceUrl !== source.url;
+  if (!changed) return false;
+  state.spreadsheetId = source.id;
+  state.sourceType = source.type;
+  state.sourceUrl = source.url || "";
+  clearSourceCache();
+  if (sourceUrlElement) sourceUrlElement.value = getStoredSourceUrl();
+  return true;
+}
+
+function readStoredSource() {
+  return {
+    id: localStorage.getItem("pbo-source-id"),
+    type: localStorage.getItem("pbo-source-type"),
+    url: localStorage.getItem("pbo-source-url") || "",
+  };
+}
+
+async function syncSource(source) {
+  if (!applyStoredSource(source)) return;
+  sourceMessageElement.textContent = "변경된 소스를 불러오는 중...";
+  try {
+    const gids = state.sourceType === "published"
+      ? await discoverPublishedSheetGids(state.spreadsheetId)
+      : await discoverSheetGids(state.spreadsheetId);
+    applySheetGids(gids);
+    sourceMessageElement.textContent = "변경된 소스를 사용 중입니다.";
+  } catch (error) {
+    sourceMessageElement.textContent = error.message;
+  }
+  loadCodes();
 }
 
 if (typeof module !== "undefined") module.exports = { buildTabCacheKey };
@@ -162,6 +204,24 @@ function getChartSymbol(code, market) {
   return code;
 }
 
+function getTradingViewInterval(period) {
+  return period === "주봉" ? "W" : period === "월봉" ? "M" : "D";
+}
+
+function buildTradingViewEmbedUrl(symbol, interval) {
+  const params = new URLSearchParams({
+    symbol,
+    interval,
+    theme: "light",
+    locale: "kr",
+    timezone: "Asia/Seoul",
+    hidesidetoolbar: "0",
+    hideideas: "1",
+    allow_symbol_change: "0",
+  });
+  return `https://www.tradingview.com/widgetembed/?${params}`;
+}
+
 function drawChart(points) {
   if (!points.length) {
     chartPlotElement.innerHTML = "<div class=\"chart-empty\">차트 데이터를 불러오지 못했습니다.</div>";
@@ -229,12 +289,23 @@ async function getChartPoints(row) {
 
 async function openChart(row) {
   chartTitleElement.textContent = `${row.name} ${state.period} 차트`;
-  chartSymbolElement.textContent = row.code;
+  const symbol = getChartSymbol(row.code, state.market);
+  chartSymbolElement.textContent = symbol;
   chartPanelElement.hidden = false;
-  chartPlotElement.innerHTML = "<div class=\"chart-empty\">차트 불러오는 중...</div>";
+  if (state.market === "한국" || state.market === "일본") {
+    chartPlotElement.innerHTML = "<div class=\"chart-empty\">차트 불러오는 중...</div>";
+    chartPanelElement.scrollIntoView({ behavior: "smooth", block: "start" });
+    try { drawChart(await getChartPoints(row)); }
+    catch { chartPlotElement.innerHTML = "<div class=\"chart-empty\">차트 데이터를 불러오지 못했습니다.</div>"; }
+    return;
+  }
+  const chartFrame = document.createElement("iframe");
+  chartFrame.title = `${row.name} TradingView 차트`;
+  chartFrame.src = buildTradingViewEmbedUrl(symbol, getTradingViewInterval(state.period));
+  chartFrame.loading = "eager";
+  chartFrame.referrerPolicy = "origin";
+  chartPlotElement.replaceChildren(chartFrame);
   chartPanelElement.scrollIntoView({ behavior: "smooth", block: "start" });
-  try { drawChart(await getChartPoints(row)); }
-  catch { chartPlotElement.innerHTML = "<div class=\"chart-empty\">차트 데이터를 불러오지 못했습니다.</div>"; }
 }
 
 function render() {
@@ -568,6 +639,7 @@ if (typeof document !== "undefined") {
       localStorage.setItem("pbo-source-id", nextId);
       localStorage.setItem("pbo-source-type", nextSourceType);
       localStorage.setItem("pbo-source-url", sourceUrl);
+      sourceChannel?.postMessage({ id: nextId, type: nextSourceType, url: sourceUrl });
       sourceMessageElement.textContent = "소스가 변경되었습니다.";
       loadCodes();
     } catch (error) {
@@ -603,6 +675,11 @@ if (typeof document !== "undefined") {
     render();
     loadCodes();
   }));
+  window.addEventListener("storage", (event) => {
+    if (!sourceStorageKeys.includes(event.key)) return;
+    syncSource(readStoredSource());
+  });
+  sourceChannel?.addEventListener("message", (event) => syncSource(event.data));
   sourceUrlElement.value = getStoredSourceUrl();
   if (!state.sourceUrl) {
     state.sourceUrl = sourceUrlElement.value;
@@ -619,6 +696,5 @@ if (typeof document !== "undefined") {
       if (state.sourceUrl) sourceMessageElement.textContent = error.message;
     }
     loadCodes();
-    setInterval(loadCodes, liveRefreshInterval);
   })();
 }
