@@ -14,7 +14,7 @@ const state = { rows: [], updatedAt: null, market: "한국", period: "일봉", s
 let loadSequence = 0;
 const sourceStorageKeys = ["pbo-source-id", "pbo-source-type", "pbo-source-url"];
 const sourceChannel = typeof document !== "undefined" && typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("pbo-source-sync") : null;
-const sourceConfigEndpoint = window.location.protocol === "file:" ? null : "/.netlify/functions/source-config";
+const sourceConfigEndpoint = window.location.protocol === "file:" ? null : "/api/source-config";
 
 function buildTabCacheKey(market, period) {
   return `${market}|${period}`;

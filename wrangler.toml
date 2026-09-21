@@ -1,0 +1,7 @@
+name = "pbo-watcher"
+main = "worker.js"
+compatibility_date = "2026-09-21"
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
