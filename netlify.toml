@@ -1,3 +1,6 @@
+[functions]
+  directory = "functions"
+
 [[redirects]]
   from = "/yahoo/*"
   to = "https://query1.finance.yahoo.com/:splat"
