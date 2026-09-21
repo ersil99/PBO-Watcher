@@ -14,6 +14,7 @@ const state = { rows: [], updatedAt: null, market: "한국", period: "일봉", s
 let loadSequence = 0;
 const sourceStorageKeys = ["pbo-source-id", "pbo-source-type", "pbo-source-url"];
 const sourceChannel = typeof document !== "undefined" && typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("pbo-source-sync") : null;
+const sourceConfigEndpoint = window.location.protocol === "file:" ? null : "/.netlify/functions/source-config";
 
 function buildTabCacheKey(market, period) {
   return `${market}|${period}`;
@@ -48,6 +49,29 @@ function readStoredSource() {
     type: localStorage.getItem("pbo-source-type"),
     url: localStorage.getItem("pbo-source-url") || "",
   };
+}
+
+async function loadSharedSource() {
+  if (!sourceConfigEndpoint) return null;
+  try {
+    const response = await fetch(sourceConfigEndpoint, { cache: "no-store" });
+    if (!response.ok) return null;
+    const source = await response.json();
+    if (source) applyStoredSource(source);
+    return source;
+  } catch {
+    return null;
+  }
+}
+
+async function saveSharedSource(source) {
+  if (!sourceConfigEndpoint) return;
+  const response = await fetch(sourceConfigEndpoint, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(source),
+  });
+  if (!response.ok) throw new Error("공용 소스 저장에 실패했습니다.");
 }
 
 async function syncSource(source) {
@@ -632,6 +656,7 @@ if (typeof document !== "undefined") {
     try {
       const nextSourceType = isPublishedSpreadsheet(sourceUrl) ? "published" : "xlsx";
       const gids = nextSourceType === "published" ? await discoverPublishedSheetGids(nextId) : await discoverSheetGids(nextId);
+      await saveSharedSource({ id: nextId, type: nextSourceType, url: sourceUrl });
       applySheetGids(gids);
       state.spreadsheetId = nextId;
       state.sourceType = nextSourceType;
@@ -687,6 +712,8 @@ if (typeof document !== "undefined") {
   }
   (async () => {
     try {
+      await loadSharedSource();
+      sourceUrlElement.value = getStoredSourceUrl();
       const gids = state.sourceType === "published"
         ? await discoverPublishedSheetGids(state.spreadsheetId)
         : await discoverSheetGids(state.spreadsheetId);
