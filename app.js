@@ -1,6 +1,7 @@
 const defaultSpreadsheetId = "1Dsr3ZQXvHs0ZwyhovHx1TeVZbkUAHvV1-57L3SqvqtI";
-const yahooBaseUrl = window.location.protocol === "file:" ? "https://query1.finance.yahoo.com" : "/yahoo";
-const naverBaseUrl = window.location.protocol === "file:" ? "https://api.finance.naver.com" : "/naver";
+const isFileProtocol = typeof window === "undefined" || window.location.protocol === "file:";
+const yahooBaseUrl = isFileProtocol ? "https://query1.finance.yahoo.com" : "/yahoo";
+const naverBaseUrl = isFileProtocol ? "https://api.finance.naver.com" : "/naver";
 const markets = {
   한국: { gidByPeriod: { 일봉: "0", 주봉: "1097197674", 월봉: "2089529874" }, sheetName: "일봉", codeColumn: 0, nameColumn: 1, changeColumn: 2, boldColumn: 1, colorColumn: 1, source: "naver" },
   미국: { gid: "1000437246", sheetName: "미국", codeColumn: 0, nameColumn: 1, changeColumn: 2, periodColumn: 5, boldColumn: 0, colorColumn: 0, colorTarget: "code", source: "yahoo" },
@@ -14,7 +15,7 @@ const state = { rows: [], updatedAt: null, market: "한국", period: "일봉", s
 let loadSequence = 0;
 const sourceStorageKeys = ["pbo-source-id", "pbo-source-type", "pbo-source-url"];
 const sourceChannel = typeof document !== "undefined" && typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("pbo-source-sync") : null;
-const sourceConfigEndpoint = window.location.protocol === "file:" ? null : "/api/source-config";
+const sourceConfigEndpoint = isFileProtocol ? null : "/api/source-config";
 
 function buildTabCacheKey(market, period) {
   return `${market}|${period}`;
@@ -491,6 +492,7 @@ async function getYahooData(code, market, period) {
   const response = await fetch(`${yahooBaseUrl}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`, { cache: "no-store" });
   if (!response.ok) throw new Error("Yahoo 시세를 읽을 수 없습니다.");
   const result = (await response.json()).chart.result?.[0];
+  const meta = result?.meta || {};
   const quote = result?.indicators?.quote?.[0];
   const grouped = new Map();
   (result?.timestamp || []).forEach((timestamp, index) => {
@@ -510,10 +512,12 @@ async function getYahooData(code, market, period) {
   const currentAverageVolume = current?.volume / (current?.days || 1);
   const previousAverageVolume = previous?.volume / (previous?.days || 1);
   return {
-    name: result?.meta?.longName || result?.meta?.shortName || code,
+    name: meta.longName || meta.shortName || code,
     volume: currentAverageVolume || null,
     volumeChange: previousAverageVolume ? (currentAverageVolume / previousAverageVolume) * 100 : null,
-    changeRate: previous?.close ? ((current.close - previous.close) / previous.close) * 100 : null,
+    changeRate: period === "일봉" && Number.isFinite(meta.regularMarketChangePercent)
+      ? meta.regularMarketChangePercent
+      : previous?.close ? ((current.close - previous.close) / previous.close) * 100 : null,
   };
 }
 
