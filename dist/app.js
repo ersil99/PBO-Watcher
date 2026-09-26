@@ -683,7 +683,7 @@ async function readMarketRows(market, period) {
 
 async function loadIndustrySummary() {
   const market = state.market;
-  const cacheKey = `${state.spreadsheetId}|${market}|${focusFilterElement.checked}|${rateFilterElement.checked}`;
+  const cacheKey = `${state.spreadsheetId}|${market}`;
   const cached = state.industrySummaryCache.get(cacheKey);
   const requestId = ++state.industryRequestId;
   state.industryLoading = !cached;
@@ -722,11 +722,7 @@ async function loadIndustrySummary() {
       if (industry) industryByCode.set(code, industry);
     });
     if (requestId !== state.industryRequestId) return;
-    const applyFilters = (rows) => rows
-      .filter((row) => !focusFilterElement.checked || row.bold)
-      .filter((row) => !rateFilterElement.checked || row.changeRate >= 2);
-    const filteredRowsByPeriod = Object.fromEntries(periods.map((period) => [period, applyFilters(rowsByPeriod[period])]));
-    state.industrySummary = buildIndustrySummary(filteredRowsByPeriod, industryByCode);
+    state.industrySummary = buildIndustrySummary(rowsByPeriod, industryByCode);
     state.industrySummaryCache.set(cacheKey, state.industrySummary);
     state.industryLoading = false;
     if (statusElement) statusElement.textContent = `${state.industrySummary.length}개 업종`;
@@ -819,11 +815,11 @@ async function loadCodes() {
 
 if (typeof document !== "undefined") {
   searchElement.addEventListener("input", render);
-  rateFilterElement.addEventListener("change", () => state.view === "industry" ? loadIndustrySummary() : render());
-  focusFilterElement.addEventListener("change", () => state.view === "industry" ? loadIndustrySummary() : render());
+  rateFilterElement.addEventListener("change", render);
+  focusFilterElement.addEventListener("change", render);
   document.querySelector("#refresh").addEventListener("click", () => {
     if (state.view === "industry") {
-      state.industrySummaryCache.delete(`${state.spreadsheetId}|${state.market}|${focusFilterElement.checked}|${rateFilterElement.checked}`);
+      state.industrySummaryCache.delete(`${state.spreadsheetId}|${state.market}`);
       loadIndustrySummary();
     } else {
       loadCodes();
