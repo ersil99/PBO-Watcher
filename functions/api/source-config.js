@@ -8,11 +8,13 @@ function json(body, status = 200) {
 }
 
 export async function onRequestGet({ env }) {
+  if (!env.SOURCE_CONFIG) return json({ error: "source config storage is not configured" }, 503);
   const source = await env.SOURCE_CONFIG.get("source", "json");
   return json(source || null);
 }
 
 export async function onRequestPost({ request, env }) {
+  if (!env.SOURCE_CONFIG) return json({ error: "source config storage is not configured" }, 503);
   const source = await request.json();
   if (!/^[a-zA-Z0-9_-]+$/.test(source.id || "") || !["xlsx", "published"].includes(source.type)) {
     return json({ error: "invalid source" }, 400);

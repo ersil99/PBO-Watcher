@@ -9,6 +9,7 @@ function json(body, status = 200) {
 }
 
 async function sourceConfig(request, env) {
+  if (!env.SOURCE_CONFIG) return json({ error: "source config storage is not configured" }, 503);
   if (request.method === "GET") {
     return json((await env.SOURCE_CONFIG.get("source", "json")) || null);
   }
