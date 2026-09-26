@@ -61,10 +61,10 @@ h3 { margin-bottom: 0; font-size: 27px; letter-spacing: -.06em; }
 .stock-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
 .stock-table tbody tr:last-child td { border-bottom: 0; }
 .stock-table tbody tr:hover { background: #f7f8ef; }
-.stock-title { display: flex; align-items: baseline; max-width: 100%; min-width: 0; gap: 6px; }
-.stock-name { min-width: 0; overflow: hidden; color: var(--ink); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.stock-title { display: flex; flex-wrap: wrap; align-items: baseline; max-width: 100%; min-width: 0; gap: 4px 6px; }
+.stock-name { flex: 1 1 60%; min-width: 0; overflow: hidden; color: var(--ink); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .stock-name.is-bold { font-weight: 700; }
-.stock-industry { min-width: 0; overflow: hidden; border-left: 1px solid var(--line); padding-left: 6px; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.stock-industry { flex: 0 1 auto; max-width: 100%; min-width: 0; overflow: hidden; border-left: 1px solid var(--line); padding-left: 6px; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .stock-code { display: block; margin-top: 2px; color: var(--muted); font: 11px "DM Mono", monospace; }
 .rate { font: 500 17px "DM Mono", monospace; }
 .positive { color: #16835c; }

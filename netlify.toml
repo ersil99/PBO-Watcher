@@ -8,6 +8,12 @@
   force = true
 
 [[redirects]]
+  from = "/naver-stock/*"
+  to = "https://m.stock.naver.com/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/naver/*"
   to = "https://api.finance.naver.com/:splat"
   status = 200

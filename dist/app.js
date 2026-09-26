@@ -2,6 +2,7 @@ const defaultSpreadsheetId = "1Dsr3ZQXvHs0ZwyhovHx1TeVZbkUAHvV1-57L3SqvqtI";
 const isFileProtocol = typeof window === "undefined" || window.location.protocol === "file:";
 const yahooBaseUrl = isFileProtocol ? "https://query1.finance.yahoo.com" : "/yahoo";
 const naverBaseUrl = isFileProtocol ? "https://api.finance.naver.com" : "/naver";
+const naverStockBaseUrl = isFileProtocol ? "https://m.stock.naver.com" : "/naver-stock";
 const markets = {
   한국: { gidByPeriod: { 일봉: "0", 주봉: "1097197674", 월봉: "2089529874" }, sheetName: "일봉", codeColumn: 0, nameColumn: 1, changeColumn: 2, boldColumn: 1, colorColumn: 1, source: "naver" },
   미국: { gid: "1000437246", sheetName: "미국", codeColumn: 0, nameColumn: 1, changeColumn: 2, periodColumn: 5, boldColumn: 0, colorColumn: 0, colorTarget: "code", source: "yahoo" },
@@ -13,6 +14,7 @@ const savedSpreadsheetId = typeof localStorage !== "undefined" ? localStorage.ge
 const savedSourceUrl = typeof localStorage !== "undefined" ? localStorage.getItem("pbo-source-url") || "" : "";
 const state = { rows: [], updatedAt: null, market: "한국", period: "일봉", spreadsheetId: savedSpreadsheetId, sourceType: savedSourceType, sourceUrl: savedSourceUrl, tabCache: new Map(), isLoading: false, loadingKey: null };
 let loadSequence = 0;
+let naverIndustryNamesPromise = null;
 const sourceStorageKeys = ["pbo-source-id", "pbo-source-type", "pbo-source-url"];
 const sourceChannel = typeof document !== "undefined" && typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("pbo-source-sync") : null;
 const sourceConfigEndpoint = isFileProtocol ? null : "/api/source-config";
@@ -90,7 +92,7 @@ async function syncSource(source) {
   loadCodes();
 }
 
-if (typeof module !== "undefined") module.exports = { buildTabCacheKey, getIndustryColumn };
+if (typeof module !== "undefined") module.exports = { buildTabCacheKey, buildIndustryNameMap, findYahooIndustry };
 
 const listElement = typeof document !== "undefined" ? document.querySelector("#list") : null;
 const countElement = typeof document !== "undefined" ? document.querySelector("#count") : null;
@@ -151,8 +153,6 @@ async function readPublishedRows(publishedId, gid, config, period) {
   if (!response.ok) throw new Error("게시된 시트 데이터를 읽을 수 없습니다.");
   const html = await response.text();
   const document = new DOMParser().parseFromString(html, "text/html");
-  const headerCells = [...document.querySelector("table tr")?.querySelectorAll(":scope > td") || []];
-  const industryColumn = getIndustryColumn(headerCells.map((cell) => cell.textContent));
   const styleMap = new Map();
   for (const match of html.matchAll(/\.s(\d+)\{([^}]+)\}/g)) {
     styleMap.set(`s${match[1]}`, match[2]);
@@ -172,8 +172,6 @@ async function readPublishedRows(publishedId, gid, config, period) {
     const colorStyle = styleMap.get(cells[config.colorColumn]?.className) || "";
     const color = colorStyle.match(/(?:^|;)color:\s*(#[0-9a-f]{6})/i)?.[1] || null;
     rows.push({ code, name: name || code, changeRate: Number.isFinite(changeRate) ? changeRate : 0, hasSheetRate: Number.isFinite(changeRate), bold: /font-weight:bold/.test(boldStyle), color });
-    const industry = industryColumn < 0 ? "" : cellText({ v: cells[industryColumn]?.textContent });
-    rows.push({ code, name: name || code, industry, changeRate: Number.isFinite(changeRate) ? changeRate : 0, hasSheetRate: Number.isFinite(changeRate), bold: /font-weight:bold/.test(boldStyle), color });
   }
   return rows;
 }
@@ -205,8 +203,13 @@ function getCellFontStyles(workbook) {
   return styles;
 }
 
-function getIndustryColumn(headers) {
-  return headers.findIndex((header) => ["업종", "산업", "업종구분", "산업구분"].includes(String(header ?? "").replace(/\s/g, "").trim()));
+function buildIndustryNameMap(groups) {
+  return new Map((groups || []).map((group) => [String(group.no), group.name]));
+}
+
+function findYahooIndustry(quotes, symbol) {
+  const quote = (quotes || []).find((item) => String(item.symbol).toUpperCase() === symbol.toUpperCase());
+  return quote?.industryDisp || quote?.industry || quote?.sectorDisp || quote?.sector || "";
 }
 
 function cellText(cell) {
@@ -457,6 +460,7 @@ function getPeriodCloses(rows, period) {
 }
 
 async function getNaverData(code, period) {
+  const industryPromise = getNaverIndustry(code).catch(() => "");
   const today = new Date();
   const endTime = today.toISOString().slice(0, 10).replaceAll("-", "");
   const start = new Date(today);
@@ -471,10 +475,30 @@ async function getNaverData(code, period) {
   const close = closes.at(-1);
   const previousClose = closes.at(-2);
   return {
+    industry: await industryPromise,
     volume: volume || null,
     volumeChange: previousVolume ? ((period === "일봉" ? volume : currentAverageVolume) / previousVolume) * 100 : null,
     changeRate: previousClose ? ((close - previousClose) / previousClose) * 100 : null,
   };
+}
+
+async function getNaverIndustry(code) {
+  if (!naverIndustryNamesPromise) {
+    naverIndustryNamesPromise = fetch(`${naverStockBaseUrl}/api/stocks/industry?page=1&pageSize=100`, { cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) throw new Error("Naver 업종 목록을 읽을 수 없습니다.");
+        return response.json();
+      })
+      .then((data) => buildIndustryNameMap(data.groups));
+    naverIndustryNamesPromise.catch(() => { naverIndustryNamesPromise = null; });
+  }
+  const [names, response] = await Promise.all([
+    naverIndustryNamesPromise,
+    fetch(`${naverStockBaseUrl}/api/stock/${encodeURIComponent(code)}/integration`, { cache: "no-store" }),
+  ]);
+  if (!response.ok) return "";
+  const data = await response.json();
+  return names.get(String(data.industryCode)) || "";
 }
 
 function getYahooSymbol(code, market) {
@@ -497,6 +521,10 @@ function getYahooPeriodKey(timestamp, period, market) {
 
 async function getYahooData(code, market, period) {
   const symbol = getYahooSymbol(code, market);
+  const industryPromise = fetch(`${yahooBaseUrl}/v1/finance/search?q=${encodeURIComponent(symbol)}&quotesCount=10&newsCount=0`, { cache: "no-store" })
+    .then((response) => response.ok ? response.json() : null)
+    .then((data) => findYahooIndustry(data?.quotes, symbol))
+    .catch(() => "");
   const range = period === "월봉" ? "2y" : period === "주봉" ? "1y" : "1mo";
   const response = await fetch(`${yahooBaseUrl}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`, { cache: "no-store" });
   if (!response.ok) throw new Error("Yahoo 시세를 읽을 수 없습니다.");
@@ -521,6 +549,7 @@ async function getYahooData(code, market, period) {
   const currentAverageVolume = current?.volume / (current?.days || 1);
   const previousAverageVolume = previous?.volume / (previous?.days || 1);
   return {
+    industry: await industryPromise,
     name: meta.longName || meta.shortName || code,
     volume: currentAverageVolume || null,
     volumeChange: previousAverageVolume ? (currentAverageVolume / previousAverageVolume) * 100 : null,
@@ -568,11 +597,6 @@ async function loadCodes() {
       if (!sheet) throw new Error(`${market} 시트를 찾을 수 없습니다.`);
       const cellFontStyles = getCellFontStyles(workbook);
       const range = XLSX.utils.decode_range(sheet["!ref"] || "A1:B1");
-      const headers = [];
-      for (let column = range.s.c; column <= range.e.c; column += 1) {
-        headers.push(cellText(sheet[XLSX.utils.encode_cell({ r: range.s.r, c: column })]));
-      }
-      const industryColumn = getIndustryColumn(headers) < 0 ? -1 : range.s.c + getIndustryColumn(headers);
       for (let row = range.s.r + 1; row <= range.e.r; row += 1) {
         const code = cellText(sheet[XLSX.utils.encode_cell({ r: row, c: config.codeColumn })]);
         const name = config.nameColumn === null ? code : cellText(sheet[XLSX.utils.encode_cell({ r: row, c: config.nameColumn })]);
@@ -585,8 +609,6 @@ async function loadCodes() {
         const matchesPeriod = config.periodColumn === undefined
           || (period === "일봉" ? !periodValue || periodValue === "일봉" : periodValue === period);
         if (code && matchesPeriod) rows.push({ code, name, changeRate: Number.isFinite(changeRate) ? changeRate : 0, hasSheetRate: Number.isFinite(changeRate), bold: Boolean(boldStyle?.bold), color: colorStyle?.color });
-        const industry = industryColumn < 0 ? "" : cellText(sheet[XLSX.utils.encode_cell({ r: row, c: industryColumn })]);
-        if (code && matchesPeriod) rows.push({ code, name, industry, changeRate: Number.isFinite(changeRate) ? changeRate : 0, hasSheetRate: Number.isFinite(changeRate), bold: Boolean(boldStyle?.bold), color: colorStyle?.color });
       }
     }
 

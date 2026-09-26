@@ -40,6 +40,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/api/source-config") return sourceConfig(request, env);
+    if (url.pathname.startsWith("/naver-stock/")) return proxyRequest(request, "https://m.stock.naver.com", "/naver-stock");
     if (url.pathname.startsWith("/naver/")) return proxyRequest(request, "https://api.finance.naver.com", "/naver");
     if (url.pathname.startsWith("/yahoo/")) return proxyRequest(request, "https://query1.finance.yahoo.com", "/yahoo");
     return env.ASSETS.fetch(request);
