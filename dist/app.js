@@ -102,7 +102,7 @@ async function syncSource(source) {
   else loadCodes();
 }
 
-if (typeof module !== "undefined") module.exports = { buildTabCacheKey, buildIndustryNameMap, findYahooIndustry, buildIndustrySummary, buildTradingViewAppUrl };
+if (typeof module !== "undefined") module.exports = { buildTabCacheKey, buildIndustryNameMap, findYahooIndustry, buildIndustrySummary, buildTradingViewChartUrl };
 
 const listElement = typeof document !== "undefined" ? document.querySelector("#list") : null;
 const countElement = typeof document !== "undefined" ? document.querySelector("#count") : null;
@@ -274,10 +274,9 @@ function getTradingViewInterval(period) {
   return period === "주봉" ? "W" : period === "월봉" ? "M" : "D";
 }
 
-function buildTradingViewAppUrl(symbol) {
-  const pathSymbol = encodeURIComponent(symbol).replaceAll("%3A", ":");
+function buildTradingViewChartUrl(symbol) {
   const params = new URLSearchParams({ symbol });
-  return `tradingview://chart/${pathSymbol}?${params}`;
+  return `https://www.tradingview.com/chart/?${params}`;
 }
 
 function isMobileDevice() {
@@ -368,7 +367,7 @@ async function getChartPoints(row) {
 async function openChart(row) {
   chartTitleElement.textContent = `${row.name} ${state.period} 차트`;
   if (isMobileDevice()) {
-    window.location.href = buildTradingViewAppUrl(getChartSymbol(row.code, state.market));
+    window.location.href = buildTradingViewChartUrl(getChartSymbol(row.code, state.market));
     return;
   }
   const symbol = getChartSymbol(row.code, state.market);
