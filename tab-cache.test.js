@@ -11,6 +11,8 @@ try {
 assert.equal(typeof app.buildTabCacheKey, 'function');
 assert.equal(app.buildTabCacheKey('한국', '일봉'), '한국|일봉');
 assert.equal(app.buildTabCacheKey('미국', '주봉'), '미국|주봉');
+assert.equal(new URL(app.buildTradingViewAppUrl('NASDAQ:AAPL')).searchParams.get('symbol'), 'NASDAQ:AAPL');
+assert.equal(new URL(app.buildTradingViewAppUrl('KRX:005930')).searchParams.get('symbol'), 'KRX:005930');
 assert.deepEqual([...app.buildIndustryNameMap([{ no: 278, name: '반도체와반도체장비' }])], [['278', '반도체와반도체장비']]);
 assert.equal(app.findYahooIndustry([{ symbol: '7203.T', industryDisp: 'Auto Manufacturers' }], '7203.T'), 'Auto Manufacturers');
 assert.equal(app.findYahooIndustry([{ symbol: 'AAPL', industry: 'Consumer Electronics' }], 'aapl'), 'Consumer Electronics');
