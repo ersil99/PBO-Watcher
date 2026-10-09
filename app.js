@@ -276,7 +276,7 @@ function getTradingViewInterval(period) {
 
 function buildTradingViewAppUrl(symbol) {
   const params = new URLSearchParams({ symbol });
-  return `https://www.tradingview.com/chart/?${params}`;
+  return `tradingview://chart/?${params}`;
 }
 
 function isMobileDevice() {
