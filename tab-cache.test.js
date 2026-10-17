@@ -11,6 +11,9 @@ try {
 assert.equal(typeof app.buildTabCacheKey, 'function');
 assert.equal(app.buildTabCacheKey('한국', '일봉'), '한국|일봉');
 assert.equal(app.buildTabCacheKey('미국', '주봉'), '미국|주봉');
+assert.ok(Math.abs(app.getNaverDailyChangeRate({ dealTrendInfos: [{ closePrice: '27,400', compareToPreviousClosePrice: '200' }] }) - (200 / 27200 * 100)) < 1e-10);
+assert.equal(app.getNaverDailyChangeRate({ dealTrendInfos: [{ closePrice: '27,000', compareToPreviousClosePrice: '-200' }] }), (-200 / 27200) * 100);
+assert.equal(app.getNaverDailyChangeRate({ dealTrendInfos: [] }), null);
 const tradingViewChartUrl = new URL(app.buildTradingViewChartUrl('NASDAQ:AAPL'));
 assert.equal(tradingViewChartUrl.origin, 'https://www.tradingview.com');
 assert.equal(tradingViewChartUrl.pathname, '/chart/');
