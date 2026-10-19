@@ -17,6 +17,17 @@ assert.equal(app.resolveStockName('시트 종목명', ''), '시트 종목명');
 assert.equal(app.getNaverDailyChangeRate([297500, 280000]).toFixed(2), '-5.88');
 assert.equal(app.getNaverDailyChangeRate([297500]), null);
 assert.equal(app.getNaverDailyChangeRate([0, 297500]), null);
+assert.equal(app.getNaverIntegrationChangeRate({ dealTrendInfos: [{ closePrice: '38,700', compareToPreviousClosePrice: '2,200' }] }).toFixed(2), '6.03');
+assert.equal(app.getNaverIntegrationChangeRate({ dealTrendInfos: [{ closePrice: '27,000', compareToPreviousClosePrice: '-200' }] }).toFixed(2), '-0.74');
+assert.equal(app.getNaverIntegrationChangeRate({ dealTrendInfos: [] }), null);
+assert.equal(app.calculateNaverRegularSessionChangeRate([
+  { time: '202610161530', close: 36500 },
+  { time: '202610161600', close: 35750 },
+  { time: '202610191529', close: 38100 },
+  { time: '202610191530', close: 38200 },
+  { time: '202610191600', close: 38700 },
+]).toFixed(2), '4.66');
+assert.equal(app.calculateNaverRegularSessionChangeRate([{ time: '202610191600', close: 38700 }]), null);
 const tradingViewChartUrl = new URL(app.buildTradingViewChartUrl('NASDAQ:AAPL'));
 assert.equal(tradingViewChartUrl.origin, 'https://www.tradingview.com');
 assert.equal(tradingViewChartUrl.pathname, '/chart/');

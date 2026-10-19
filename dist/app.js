@@ -3,6 +3,7 @@ const isFileProtocol = typeof window === "undefined" || window.location.protocol
 const yahooBaseUrl = isFileProtocol ? "https://query1.finance.yahoo.com" : "/yahoo";
 const naverBaseUrl = isFileProtocol ? "https://api.finance.naver.com" : "/naver";
 const naverStockBaseUrl = isFileProtocol ? "https://m.stock.naver.com" : "/naver-stock";
+const naverChartBaseUrl = isFileProtocol ? "https://fchart.stock.naver.com" : "/naver-chart";
 const markets = {
   한국: { gidByPeriod: { 일봉: "0", 주봉: "1097197674", 월봉: "2089529874" }, sheetName: "일봉", codeColumn: 0, nameColumn: 1, changeColumn: 2, boldColumn: 1, colorColumn: 1, source: "naver" },
   미국: { gid: "1000437246", sheetName: "미국", codeColumn: 0, nameColumn: 1, changeColumn: 2, periodColumn: 5, boldColumn: 0, colorColumn: 0, colorTarget: "code", source: "yahoo" },
@@ -106,7 +107,7 @@ async function syncSource(source) {
   else loadCodes();
 }
 
-if (typeof module !== "undefined") module.exports = { buildTabCacheKey, buildIndustryNameMap, findYahooIndustry, buildIndustrySummary, buildTradingViewChartUrl, getNaverDailyChangeRate, resolveStockName };
+if (typeof module !== "undefined") module.exports = { buildTabCacheKey, buildIndustryNameMap, findYahooIndustry, buildIndustrySummary, buildTradingViewChartUrl, getNaverDailyChangeRate, getNaverIntegrationChangeRate, calculateNaverRegularSessionChangeRate, resolveStockName };
 
 const listElement = typeof document !== "undefined" ? document.querySelector("#list") : null;
 const countElement = typeof document !== "undefined" ? document.querySelector("#count") : null;
@@ -558,8 +559,44 @@ function getNaverDailyChangeRate(closes) {
   return ((close - previousClose) / previousClose) * 100;
 }
 
+function getNaverIntegrationChangeRate(data) {
+  const latest = data?.dealTrendInfos?.[0];
+  const close = Number(String(latest?.closePrice ?? "").replace(/,/g, ""));
+  const change = Number(String(latest?.compareToPreviousClosePrice ?? "").replace(/,/g, ""));
+  const previousClose = close - change;
+  if (!Number.isFinite(close) || !Number.isFinite(change) || close <= 0 || previousClose <= 0) return null;
+  return (change / previousClose) * 100;
+}
+
+function calculateNaverRegularSessionChangeRate(rows) {
+  const closesByDate = new Map();
+  rows.forEach(({ time, close }) => {
+    const timestamp = String(time);
+    const sessionTime = timestamp.slice(8);
+    if (timestamp.length !== 12 || sessionTime < "0900" || sessionTime > "1530" || !Number.isFinite(close) || close <= 0) return;
+    const date = timestamp.slice(0, 8);
+    const previous = closesByDate.get(date);
+    if (!previous || sessionTime > previous.time) closesByDate.set(date, { time: sessionTime, close });
+  });
+  const dates = [...closesByDate.keys()].sort();
+  return getNaverDailyChangeRate(dates.slice(-2).map((date) => closesByDate.get(date).close));
+}
+
+async function fetchNaverRegularSessionChangeRate(code) {
+  const url = `${naverChartBaseUrl}/sise.nhn?symbol=${encodeURIComponent(code)}&timeframe=minute&count=1000&requestType=0`;
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Naver chart HTTP ${response.status}`);
+  const document = new DOMParser().parseFromString(await response.text(), "application/xml");
+  const rows = [...document.querySelectorAll("item[data]")].map((item) => {
+    const [time, , , , close] = item.getAttribute("data").split("|");
+    return { time, close: Number(close) };
+  });
+  return calculateNaverRegularSessionChangeRate(rows);
+}
+
 async function getNaverData(code, period) {
-  const stockInfoPromise = getNaverStockInfo(code).catch(() => ({ industry: "", name: "" }));
+  const stockInfoPromise = getNaverStockInfo(code).catch(() => ({ industry: "", name: "", dailyChangeRate: null }));
+  const regularSessionChangeRatePromise = period === "일봉" ? fetchNaverRegularSessionChangeRate(code).catch(() => null) : Promise.resolve(null);
   const today = new Date();
   const endTime = today.toISOString().slice(0, 10).replaceAll("-", "");
   const start = new Date(today);
@@ -573,13 +610,13 @@ async function getNaverData(code, period) {
   const closes = getPeriodCloses(rows, period);
   const close = closes.at(-1);
   const previousClose = closes.at(-2);
-  const stockInfo = await stockInfoPromise;
+  const [stockInfo, regularSessionChangeRate] = await Promise.all([stockInfoPromise, regularSessionChangeRatePromise]);
   return {
     industry: stockInfo.industry,
     name: stockInfo.name,
     volume: volume || null,
     volumeChange: previousVolume ? ((period === "일봉" ? volume : currentAverageVolume) / previousVolume) * 100 : null,
-    changeRate: period === "일봉" ? getNaverDailyChangeRate(closes) : previousClose ? ((close - previousClose) / previousClose) * 100 : null,
+    changeRate: period === "일봉" ? regularSessionChangeRate : previousClose ? ((close - previousClose) / previousClose) * 100 : null,
   };
 }
 
@@ -597,9 +634,13 @@ async function getNaverStockInfo(code) {
     naverIndustryNamesPromise.catch(() => new Map()),
     fetch(`${naverStockBaseUrl}/api/stock/${encodeURIComponent(code)}/integration`, { cache: "no-store" }),
   ]);
-  if (!response.ok) return { industry: "", name: "" };
+  if (!response.ok) return { industry: "", name: "", dailyChangeRate: null };
   const data = await response.json();
-  return { industry: names.get(String(data.industryCode)) || "", name: data.stockName || "" };
+  return {
+    industry: names.get(String(data.industryCode)) || "",
+    name: data.stockName || "",
+    dailyChangeRate: getNaverIntegrationChangeRate(data),
+  };
 }
 
 function getYahooSymbol(code, market) {
