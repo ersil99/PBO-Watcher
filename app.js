@@ -547,17 +547,15 @@ function getPeriodCloses(rows, period) {
   return [...grouped.values()].filter((value) => Number.isFinite(value));
 }
 
-function getNaverDailyChangeRate(data) {
-  const latest = data?.dealTrendInfos?.[0];
-  const close = Number(String(latest?.closePrice ?? "").replace(/,/g, ""));
-  const change = Number(String(latest?.compareToPreviousClosePrice ?? "").replace(/,/g, ""));
-  const previousClose = close - change;
-  if (!Number.isFinite(close) || !Number.isFinite(change) || previousClose <= 0) return null;
-  return (change / previousClose) * 100;
+function getNaverDailyChangeRate(closes) {
+  const close = closes.at(-1);
+  const previousClose = closes.at(-2);
+  if (!Number.isFinite(close) || !Number.isFinite(previousClose) || close <= 0 || previousClose <= 0) return null;
+  return ((close - previousClose) / previousClose) * 100;
 }
 
 async function getNaverData(code, period) {
-  const stockInfoPromise = getNaverStockInfo(code).catch(() => ({ industry: "", dailyChangeRate: null }));
+  const stockInfoPromise = getNaverStockInfo(code).catch(() => ({ industry: "" }));
   const today = new Date();
   const endTime = today.toISOString().slice(0, 10).replaceAll("-", "");
   const start = new Date(today);
@@ -576,7 +574,7 @@ async function getNaverData(code, period) {
     industry: stockInfo.industry,
     volume: volume || null,
     volumeChange: previousVolume ? ((period === "일봉" ? volume : currentAverageVolume) / previousVolume) * 100 : null,
-    changeRate: period === "일봉" ? stockInfo.dailyChangeRate ?? (previousClose ? ((close - previousClose) / previousClose) * 100 : null) : previousClose ? ((close - previousClose) / previousClose) * 100 : null,
+    changeRate: period === "일봉" ? getNaverDailyChangeRate(closes) : previousClose ? ((close - previousClose) / previousClose) * 100 : null,
   };
 }
 
@@ -594,12 +592,9 @@ async function getNaverStockInfo(code) {
     naverIndustryNamesPromise.catch(() => new Map()),
     fetch(`${naverStockBaseUrl}/api/stock/${encodeURIComponent(code)}/integration`, { cache: "no-store" }),
   ]);
-  if (!response.ok) return { industry: "", dailyChangeRate: null };
+  if (!response.ok) return { industry: "" };
   const data = await response.json();
-  return {
-    industry: names.get(String(data.industryCode)) || "",
-    dailyChangeRate: getNaverDailyChangeRate(data),
-  };
+  return { industry: names.get(String(data.industryCode)) || "" };
 }
 
 function getYahooSymbol(code, market) {
