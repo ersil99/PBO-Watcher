@@ -23,6 +23,10 @@ function buildTabCacheKey(market, period) {
   return `${market}|${period}`;
 }
 
+function resolveStockName(sheetName, naverName) {
+  return naverName?.trim() || sheetName;
+}
+
 function readCachedRows(market, period) {
   const key = buildTabCacheKey(market, period);
   return state.tabCache.get(key) || null;
@@ -102,7 +106,7 @@ async function syncSource(source) {
   else loadCodes();
 }
 
-if (typeof module !== "undefined") module.exports = { buildTabCacheKey, buildIndustryNameMap, findYahooIndustry, buildIndustrySummary, buildTradingViewChartUrl, getNaverDailyChangeRate };
+if (typeof module !== "undefined") module.exports = { buildTabCacheKey, buildIndustryNameMap, findYahooIndustry, buildIndustrySummary, buildTradingViewChartUrl, getNaverDailyChangeRate, resolveStockName };
 
 const listElement = typeof document !== "undefined" ? document.querySelector("#list") : null;
 const countElement = typeof document !== "undefined" ? document.querySelector("#count") : null;
@@ -555,7 +559,7 @@ function getNaverDailyChangeRate(closes) {
 }
 
 async function getNaverData(code, period) {
-  const stockInfoPromise = getNaverStockInfo(code).catch(() => ({ industry: "" }));
+  const stockInfoPromise = getNaverStockInfo(code).catch(() => ({ industry: "", name: "" }));
   const today = new Date();
   const endTime = today.toISOString().slice(0, 10).replaceAll("-", "");
   const start = new Date(today);
@@ -572,6 +576,7 @@ async function getNaverData(code, period) {
   const stockInfo = await stockInfoPromise;
   return {
     industry: stockInfo.industry,
+    name: stockInfo.name,
     volume: volume || null,
     volumeChange: previousVolume ? ((period === "일봉" ? volume : currentAverageVolume) / previousVolume) * 100 : null,
     changeRate: period === "일봉" ? getNaverDailyChangeRate(closes) : previousClose ? ((close - previousClose) / previousClose) * 100 : null,
@@ -592,9 +597,9 @@ async function getNaverStockInfo(code) {
     naverIndustryNamesPromise.catch(() => new Map()),
     fetch(`${naverStockBaseUrl}/api/stock/${encodeURIComponent(code)}/integration`, { cache: "no-store" }),
   ]);
-  if (!response.ok) return { industry: "" };
+  if (!response.ok) return { industry: "", name: "" };
   const data = await response.json();
-  return { industry: names.get(String(data.industryCode)) || "" };
+  return { industry: names.get(String(data.industryCode)) || "", name: data.stockName || "" };
 }
 
 function getYahooSymbol(code, market) {
@@ -804,7 +809,7 @@ async function loadCodes() {
     const enrichedRows = await Promise.all(rows.map(async (row) => {
       try {
         const quote = config.source === "naver" ? await getNaverData(row.code, period) : await getYahooData(row.code, market, period);
-        return { ...row, ...quote, changeRate: quote.changeRate ?? row.changeRate };
+        return { ...row, ...quote, name: config.source === "naver" ? resolveStockName(row.name, quote.name) : row.name, changeRate: quote.changeRate ?? row.changeRate };
       }
       catch { return { ...row, volume: null, volumeChange: null }; }
     }));

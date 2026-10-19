@@ -11,6 +11,9 @@ try {
 assert.equal(typeof app.buildTabCacheKey, 'function');
 assert.equal(app.buildTabCacheKey('한국', '일봉'), '한국|일봉');
 assert.equal(app.buildTabCacheKey('미국', '주봉'), '미국|주봉');
+assert.equal(app.resolveStockName('#ERROR!', '아스플로'), '아스플로');
+assert.equal(app.resolveStockName('#ERROR!', '피델릭스'), '피델릭스');
+assert.equal(app.resolveStockName('시트 종목명', ''), '시트 종목명');
 assert.equal(app.getNaverDailyChangeRate([297500, 280000]).toFixed(2), '-5.88');
 assert.equal(app.getNaverDailyChangeRate([297500]), null);
 assert.equal(app.getNaverDailyChangeRate([0, 297500]), null);
