@@ -28,6 +28,10 @@ function resolveStockName(sheetName, naverName) {
   return naverName?.trim() || sheetName;
 }
 
+function resolveYahooStockName(sheetName, yahooName, code, hasSheetName) {
+  return (hasSheetName ? sheetName?.trim() : "") || yahooName?.trim() || sheetName?.trim() || code;
+}
+
 function readCachedRows(market, period) {
   const key = buildTabCacheKey(market, period);
   return state.tabCache.get(key) || null;
@@ -107,7 +111,7 @@ async function syncSource(source) {
   else loadCodes();
 }
 
-if (typeof module !== "undefined") module.exports = { buildTabCacheKey, buildIndustryNameMap, findYahooIndustry, buildIndustrySummary, buildTradingViewChartUrl, getNaverDailyChangeRate, getNaverIntegrationChangeRate, calculateNaverRegularSessionChangeRate, resolveStockName };
+if (typeof module !== "undefined") module.exports = { buildTabCacheKey, buildIndustryNameMap, findYahooIndustry, buildIndustrySummary, buildTradingViewChartUrl, getNaverDailyChangeRate, getNaverIntegrationChangeRate, calculateNaverRegularSessionChangeRate, resolveStockName, resolveYahooStockName };
 
 const listElement = typeof document !== "undefined" ? document.querySelector("#list") : null;
 const countElement = typeof document !== "undefined" ? document.querySelector("#count") : null;
@@ -850,7 +854,14 @@ async function loadCodes() {
     const enrichedRows = await Promise.all(rows.map(async (row) => {
       try {
         const quote = config.source === "naver" ? await getNaverData(row.code, period) : await getYahooData(row.code, market, period);
-        return { ...row, ...quote, name: config.source === "naver" ? resolveStockName(row.name, quote.name) : row.name, changeRate: quote.changeRate ?? row.changeRate };
+        return {
+          ...row,
+          ...quote,
+          name: config.source === "naver"
+            ? resolveStockName(row.name, quote.name)
+            : resolveYahooStockName(row.name, quote.name, row.code, config.nameColumn !== null),
+          changeRate: quote.changeRate ?? row.changeRate,
+        };
       }
       catch { return { ...row, volume: null, volumeChange: null }; }
     }));
