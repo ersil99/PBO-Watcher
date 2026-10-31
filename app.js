@@ -448,7 +448,7 @@ function render() {
   const currentKey = buildTabCacheKey(state.market, state.period);
   const visibleRows = state.rows
     .filter((row) => !focusFilterElement.checked || row.bold)
-    .filter((row) => !rateFilterElement.checked || row.closeLowRate >= 2)
+    .filter((row) => !rateFilterElement.checked || (row.closeLowRate >= 2 && row.changeRate > 0))
     .filter((row) => `${row.code} ${row.name}`.toLowerCase().includes(query))
     .sort((left, right) => {
       const boldOrder = Number(right.bold) - Number(left.bold);
