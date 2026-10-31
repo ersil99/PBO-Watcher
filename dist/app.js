@@ -111,7 +111,7 @@ async function syncSource(source) {
   else loadCodes();
 }
 
-if (typeof module !== "undefined") module.exports = { buildTabCacheKey, buildIndustryNameMap, findYahooIndustry, buildIndustrySummary, buildTradingViewChartUrl, getNaverDailyChangeRate, getNaverIntegrationChangeRate, calculateNaverRegularSessionChangeRate, resolveStockName, resolveYahooStockName };
+if (typeof module !== "undefined") module.exports = { buildTabCacheKey, buildIndustryNameMap, findYahooIndustry, buildIndustrySummary, buildTradingViewChartUrl, getNaverDailyChangeRate, getNaverIntegrationChangeRate, calculateNaverRegularSessionChangeRate, calculateCloseLowRate, getCurrentPeriodCloseLowRate, resolveStockName, resolveYahooStockName };
 
 const listElement = typeof document !== "undefined" ? document.querySelector("#list") : null;
 const countElement = typeof document !== "undefined" ? document.querySelector("#count") : null;
@@ -448,7 +448,7 @@ function render() {
   const currentKey = buildTabCacheKey(state.market, state.period);
   const visibleRows = state.rows
     .filter((row) => !focusFilterElement.checked || row.bold)
-    .filter((row) => !rateFilterElement.checked || row.changeRate >= 2)
+    .filter((row) => !rateFilterElement.checked || row.closeLowRate >= 2)
     .filter((row) => `${row.code} ${row.name}`.toLowerCase().includes(query))
     .sort((left, right) => {
       const boldOrder = Number(right.bold) - Number(left.bold);
@@ -556,6 +556,27 @@ function getPeriodCloses(rows, period) {
   return [...grouped.values()].filter((value) => Number.isFinite(value));
 }
 
+function calculateCloseLowRate(close, low) {
+  if (!Number.isFinite(close) || !Number.isFinite(low) || close <= 0 || low <= 0) return null;
+  return ((close - low) / low) * 100;
+}
+
+function getCurrentPeriodCloseLowRate(rows, period) {
+  const grouped = new Map();
+  rows.forEach((row) => {
+    const low = Number(row[3]);
+    const close = Number(row[4]);
+    if (!Number.isFinite(low) || !Number.isFinite(close)) return;
+    const key = getPeriodKey(String(row[0]), period);
+    const entry = grouped.get(key) || { low, close };
+    entry.low = Math.min(entry.low, low);
+    entry.close = close;
+    grouped.set(key, entry);
+  });
+  const current = [...grouped.values()].at(-1);
+  return calculateCloseLowRate(current?.close, current?.low);
+}
+
 function getNaverDailyChangeRate(closes) {
   const close = closes.at(-1);
   const previousClose = closes.at(-2);
@@ -614,6 +635,7 @@ async function getNaverData(code, period) {
   const closes = getPeriodCloses(rows, period);
   const close = closes.at(-1);
   const previousClose = closes.at(-2);
+  const closeLowRate = getCurrentPeriodCloseLowRate(rows, period);
   const [stockInfo, regularSessionChangeRate] = await Promise.all([stockInfoPromise, regularSessionChangeRatePromise]);
   return {
     industry: stockInfo.industry,
@@ -621,6 +643,7 @@ async function getNaverData(code, period) {
     volume: volume || null,
     volumeChange: previousVolume ? ((period === "일봉" ? volume : currentAverageVolume) / previousVolume) * 100 : null,
     changeRate: period === "일봉" ? regularSessionChangeRate : previousClose ? ((close - previousClose) / previousClose) * 100 : null,
+    closeLowRate,
   };
 }
 
@@ -677,11 +700,13 @@ async function getYahooData(code, market, period) {
   const grouped = new Map();
   (result?.timestamp || []).forEach((timestamp, index) => {
     const close = quote?.close?.[index];
+    const low = quote?.low?.[index];
     const volume = quote?.volume?.[index];
     if (!Number.isFinite(close)) return;
     const key = getYahooPeriodKey(timestamp, period, market);
-    const entry = grouped.get(key) || { close: null, volume: 0, days: 0 };
+    const entry = grouped.get(key) || { close: null, low: null, volume: 0, days: 0 };
     entry.close = close;
+    if (Number.isFinite(low)) entry.low = entry.low === null ? low : Math.min(entry.low, low);
     entry.volume += Number.isFinite(volume) ? volume : 0;
     entry.days += 1;
     grouped.set(key, entry);
@@ -699,6 +724,7 @@ async function getYahooData(code, market, period) {
     changeRate: period === "일봉" && Number.isFinite(meta.regularMarketChangePercent)
       ? meta.regularMarketChangePercent
       : previous?.close ? ((current.close - previous.close) / previous.close) * 100 : null,
+    closeLowRate: calculateCloseLowRate(current?.close, current?.low),
   };
 }
 

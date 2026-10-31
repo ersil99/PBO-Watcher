@@ -23,6 +23,14 @@ assert.equal(app.getNaverDailyChangeRate([0, 297500]), null);
 assert.equal(app.getNaverIntegrationChangeRate({ dealTrendInfos: [{ closePrice: '38,700', compareToPreviousClosePrice: '2,200' }] }).toFixed(2), '6.03');
 assert.equal(app.getNaverIntegrationChangeRate({ dealTrendInfos: [{ closePrice: '27,000', compareToPreviousClosePrice: '-200' }] }).toFixed(2), '-0.74');
 assert.equal(app.getNaverIntegrationChangeRate({ dealTrendInfos: [] }), null);
+assert.equal(app.calculateCloseLowRate(102, 100), 2);
+assert.equal(app.calculateCloseLowRate(99, 100), -1);
+assert.equal(app.calculateCloseLowRate(100, 0), null);
+assert.equal(app.getCurrentPeriodCloseLowRate([
+  ['20261019', 0, 0, 95, 98],
+  ['20261020', 0, 0, 90, 100],
+  ['20261026', 0, 0, 96, 98],
+], '주봉').toFixed(2), '2.08');
 assert.equal(app.calculateNaverRegularSessionChangeRate([
   { time: '202610161530', close: 36500 },
   { time: '202610161600', close: 35750 },
