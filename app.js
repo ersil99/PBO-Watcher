@@ -111,7 +111,7 @@ async function syncSource(source) {
   else loadCodes();
 }
 
-if (typeof module !== "undefined") module.exports = { buildTabCacheKey, buildIndustryNameMap, findYahooIndustry, buildIndustrySummary, buildTradingViewChartUrl, getNaverDailyChangeRate, getNaverIntegrationChangeRate, calculateNaverRegularSessionChangeRate, calculateCloseLowRate, getCurrentPeriodCloseLowRate, resolveStockName, resolveYahooStockName };
+if (typeof module !== "undefined") module.exports = { buildTabCacheKey, buildIndustryNameMap, findYahooIndustry, buildIndustrySummary, buildTradingViewChartUrl, getNaverDailyChangeRate, getNaverIntegrationChangeRate, calculateNaverRegularSessionChangeRate, calculateCloseLowRate, getCurrentPeriodCloseLowRate, matchesRateFilter, resolveStockName, resolveYahooStockName };
 
 const listElement = typeof document !== "undefined" ? document.querySelector("#list") : null;
 const countElement = typeof document !== "undefined" ? document.querySelector("#count") : null;
@@ -448,7 +448,7 @@ function render() {
   const currentKey = buildTabCacheKey(state.market, state.period);
   const visibleRows = state.rows
     .filter((row) => !focusFilterElement.checked || row.bold)
-    .filter((row) => !rateFilterElement.checked || (row.closeLowRate >= 2 && row.changeRate > 0))
+    .filter((row) => !rateFilterElement.checked || matchesRateFilter(row))
     .filter((row) => `${row.code} ${row.name}`.toLowerCase().includes(query))
     .sort((left, right) => {
       const boldOrder = Number(right.bold) - Number(left.bold);
@@ -559,6 +559,10 @@ function getPeriodCloses(rows, period) {
 function calculateCloseLowRate(close, low) {
   if (!Number.isFinite(close) || !Number.isFinite(low) || close <= 0 || low <= 0) return null;
   return ((close - low) / low) * 100;
+}
+
+function matchesRateFilter(row) {
+  return row.changeRate >= 2 || (row.closeLowRate >= 2 && row.changeRate > 0);
 }
 
 function getCurrentPeriodCloseLowRate(rows, period) {

@@ -26,6 +26,11 @@ assert.equal(app.getNaverIntegrationChangeRate({ dealTrendInfos: [] }), null);
 assert.equal(app.calculateCloseLowRate(102, 100), 2);
 assert.equal(app.calculateCloseLowRate(99, 100), -1);
 assert.equal(app.calculateCloseLowRate(100, 0), null);
+assert.equal(app.matchesRateFilter({ changeRate: 2, closeLowRate: 0 }), true);
+assert.equal(app.matchesRateFilter({ changeRate: 1, closeLowRate: 2 }), true);
+assert.equal(app.matchesRateFilter({ changeRate: 0, closeLowRate: 3 }), false);
+assert.equal(app.matchesRateFilter({ changeRate: -1, closeLowRate: 3 }), false);
+assert.equal(app.matchesRateFilter({ changeRate: 1, closeLowRate: 1.99 }), false);
 assert.equal(app.getCurrentPeriodCloseLowRate([
   ['20261019', 0, 0, 95, 98],
   ['20261020', 0, 0, 90, 100],
