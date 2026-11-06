@@ -561,8 +561,12 @@ function calculateCloseLowRate(close, low) {
   return ((close - low) / low) * 100;
 }
 
+function isCloseAtOrAbovePreviousHigh(close, previousHigh) {
+  return Number.isFinite(close) && Number.isFinite(previousHigh) && close >= previousHigh;
+}
+
 function matchesRateFilter(row) {
-  return row.changeRate >= 2 || (row.closeLowRate >= 2 && row.changeRate > 0);
+  return row.changeRate >= 2 || (row.closeLowRate >= 2 && isCloseAtOrAbovePreviousHigh(row.close, row.previousDayHigh));
 }
 
 function getCurrentPeriodCloseLowRate(rows, period) {
@@ -639,6 +643,7 @@ async function getNaverData(code, period) {
   const closes = getPeriodCloses(rows, period);
   const close = closes.at(-1);
   const previousClose = closes.at(-2);
+  const previousDayHigh = Number(rows.at(-2)?.[2]);
   const closeLowRate = getCurrentPeriodCloseLowRate(rows, period);
   const [stockInfo, regularSessionChangeRate] = await Promise.all([stockInfoPromise, regularSessionChangeRatePromise]);
   return {
@@ -647,6 +652,8 @@ async function getNaverData(code, period) {
     volume: volume || null,
     volumeChange: previousVolume ? ((period === "일봉" ? volume : currentAverageVolume) / previousVolume) * 100 : null,
     changeRate: period === "일봉" ? regularSessionChangeRate : previousClose ? ((close - previousClose) / previousClose) * 100 : null,
+    close,
+    previousDayHigh,
     closeLowRate,
   };
 }
@@ -702,6 +709,12 @@ async function getYahooData(code, market, period) {
   const meta = result?.meta || {};
   const quote = result?.indicators?.quote?.[0];
   const grouped = new Map();
+  const dailyCandles = (result?.timestamp || []).map((timestamp, index) => ({
+    close: quote?.close?.[index],
+    high: quote?.high?.[index],
+  })).filter((candle) => Number.isFinite(candle.close));
+  const currentDaily = dailyCandles.at(-1);
+  const previousDaily = dailyCandles.at(-2);
   (result?.timestamp || []).forEach((timestamp, index) => {
     const close = quote?.close?.[index];
     const low = quote?.low?.[index];
@@ -728,6 +741,8 @@ async function getYahooData(code, market, period) {
     changeRate: period === "일봉" && Number.isFinite(meta.regularMarketChangePercent)
       ? meta.regularMarketChangePercent
       : previous?.close ? ((current.close - previous.close) / previous.close) * 100 : null,
+    close: currentDaily?.close,
+    previousDayHigh: previousDaily?.high,
     closeLowRate: calculateCloseLowRate(current?.close, current?.low),
   };
 }
