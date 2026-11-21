@@ -1,3 +1,5 @@
+import { getDueNotifications, loadMarketStocks, sendTelegramNotification } from "./telegram-notifications.mjs";
+
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -46,5 +48,22 @@ export default {
     if (url.pathname.startsWith("/naver/")) return proxyRequest(request, "https://api.finance.naver.com", "/naver");
     if (url.pathname.startsWith("/yahoo/")) return proxyRequest(request, "https://query1.finance.yahoo.com", "/yahoo");
     return env.ASSETS.fetch(request);
+  },
+  async scheduled(controller, env) {
+    const notifications = getDueNotifications(new Date(controller.scheduledTime));
+    if (!notifications.length) return;
+    if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) {
+      throw new Error("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID secrets must be configured");
+    }
+
+    for (const notification of notifications) {
+      const sentKey = `telegram-sent:${notification.key}`;
+      if (env.SOURCE_CONFIG && await env.SOURCE_CONFIG.get(sentKey)) continue;
+      const stocks = await loadMarketStocks(env, notification.markets);
+      await sendTelegramNotification(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, notification, stocks);
+      if (env.SOURCE_CONFIG) {
+        await env.SOURCE_CONFIG.put(sentKey, "1", { expirationTtl: 5184000 });
+      }
+    }
   },
 };

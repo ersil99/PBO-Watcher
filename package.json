@@ -1,6 +1,10 @@
 {
   "private": true,
   "scripts": {
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "test": "node tab-cache.test.js && node --test telegram-notifications.test.mjs"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
   }
 }
