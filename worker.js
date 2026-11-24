@@ -1,4 +1,4 @@
-import { getDueNotifications, loadMarketStocks, sendTelegramNotification } from "./telegram-notifications.mjs";
+import { getDueNotifications, handleTelegramWebhook, processNotificationQueueMessage } from "./telegram-notifications.mjs";
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -43,6 +43,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/api/source-config") return sourceConfig(request, env);
+    if (url.pathname === "/api/telegram-webhook") return handleTelegramWebhook(request, env);
     if (url.pathname.startsWith("/naver-stock/")) return proxyRequest(request, "https://m.stock.naver.com", "/naver-stock");
     if (url.pathname.startsWith("/naver-chart/")) return proxyRequest(request, "https://fchart.stock.naver.com", "/naver-chart");
     if (url.pathname.startsWith("/naver/")) return proxyRequest(request, "https://api.finance.naver.com", "/naver");
@@ -55,15 +56,14 @@ export default {
     if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) {
       throw new Error("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID secrets must be configured");
     }
-
+    if (!env.NOTIFICATION_QUEUE) throw new Error("NOTIFICATION_QUEUE binding is not configured");
     for (const notification of notifications) {
-      const sentKey = `telegram-sent:${notification.key}`;
-      if (env.SOURCE_CONFIG && await env.SOURCE_CONFIG.get(sentKey)) continue;
-      const stocks = await loadMarketStocks(env, notification.markets);
-      await sendTelegramNotification(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, notification, stocks);
-      if (env.SOURCE_CONFIG) {
-        await env.SOURCE_CONFIG.put(sentKey, "1", { expirationTtl: 5184000 });
-      }
+      await env.NOTIFICATION_QUEUE.send({ type: "scheduled", notification });
+    }
+  },
+  async queue(batch, env) {
+    for (const message of batch.messages) {
+      await processNotificationQueueMessage(env, message.body);
     }
   },
 };
