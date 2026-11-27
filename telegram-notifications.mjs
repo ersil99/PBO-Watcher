@@ -510,6 +510,9 @@ export async function fetchStockMetrics(market, row, naverIndustries) {
   const sheetRates = row.changeRatesByPeriod || {};
   const rates = Object.values(sheetRates).length ? Object.values(sheetRates) : [row.changeRate];
   const needsCloseLowMetrics = rates.some((rate) => Number.isFinite(rate) && rate > 0 && rate < 2);
+  const hasJapanesePeriods = row.marketPeriods?.length > 0
+    || periods.some((period) => Object.prototype.hasOwnProperty.call(sheetRates, period));
+  const needsJapanesePeriodMetrics = market === "일본" && hasJapanesePeriods;
 
   if (market === "한국") {
     const chartPromise = needsCloseLowMetrics
@@ -546,7 +549,7 @@ export async function fetchStockMetrics(market, row, naverIndustries) {
 
   const symbol = getYahooSymbol(row.code, market);
   const [chartResponse, searchResponse] = await Promise.all([
-    needsCloseLowMetrics
+    needsCloseLowMetrics || needsJapanesePeriodMetrics
       ? fetchWithRetry(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=3mo&interval=1d`)
       : Promise.resolve(null),
     fetchWithRetry(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(symbol)}&quotesCount=10&newsCount=0`),
@@ -559,7 +562,12 @@ export async function fetchStockMetrics(market, row, naverIndustries) {
   const industry = stockQuote?.industryDisp || stockQuote?.industry || stockQuote?.sectorDisp || stockQuote?.sector || "";
   const metricsByPeriod = Object.fromEntries(periods.map((period) => [
     period,
-    getYahooMarketData(result, market, period, sheetRates[period] ?? row.changeRate),
+    getYahooMarketData(
+      result,
+      market,
+      period,
+      market === "일본" ? null : sheetRates[period] ?? row.changeRate,
+    ),
   ]));
   return {
     name: result?.meta?.longName || result?.meta?.shortName || stockQuote?.longname || stockQuote?.shortname || row.name,

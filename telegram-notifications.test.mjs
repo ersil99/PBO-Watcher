@@ -161,6 +161,50 @@ test("fetches Korean candle history only for positive rates below two percent", 
   }
 });
 
+test("uses Yahoo's current daily rate for Japanese stocks instead of the sheet's previous rate", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    const requestUrl = String(url);
+    requests.push(requestUrl);
+    if (requestUrl.includes("/v8/finance/chart/")) {
+      return Response.json({
+        chart: {
+          result: [{
+            meta: { regularMarketChangePercent: 3.6 },
+            timestamp: [
+              Date.UTC(2026, 9, 30) / 1000,
+              Date.UTC(2026, 10, 20) / 1000,
+              Date.UTC(2026, 10, 24) / 1000,
+            ],
+            indicators: { quote: [{ close: [90, 100, 103.6], high: [91, 102, 104], low: [88, 99, 100] }] },
+          }],
+        },
+      });
+    }
+    if (requestUrl.includes("/v1/finance/search")) {
+      return Response.json({ quotes: [{ symbol: "5121.T", industryDisp: "Auto Parts" }] });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  };
+
+  try {
+    const metrics = await fetchStockMetrics("일본", {
+      code: "5121",
+      name: "5121",
+      marketPeriods: ["일봉", "주봉", "월봉"],
+      changeRatesByPeriod: { 일봉: 2.09, 주봉: -1.14, 월봉: -2 },
+    }, new Map());
+
+    assert.ok(requests.some((url) => url.includes("/v8/finance/chart/5121.T")), requests.join("\n"));
+    assert.equal(metrics.metricsByPeriod["일봉"].changeRate, 3.6);
+    assert.ok(Math.abs(metrics.metricsByPeriod["주봉"].changeRate - 3.6) < 1e-10);
+    assert.ok(Math.abs(metrics.metricsByPeriod["월봉"].changeRate - ((103.6 - 90) / 90) * 100) < 1e-10);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("keeps each sheet's period rate and downloads each worksheet only once", async () => {
   const originalFetch = globalThis.fetch;
   const worksheetRequests = [];

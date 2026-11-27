@@ -2,6 +2,11 @@ name = "pbo-watcher"
 main = "worker.js"
 compatibility_date = "2026-09-21"
 
+[observability.logs]
+enabled = true
+invocation_logs = true
+persist = true
+
 [assets]
 directory = "./dist"
 binding = "ASSETS"
@@ -11,7 +16,7 @@ binding = "SOURCE_CONFIG"
 id = "649d43712ad94d038ad832a7b55c863b"
 
 [triggers]
-crons = ["0 1,4,6,14,15 * * 1-5", "15 6 * * 1-5", "30,50 19-21 * * 1-5"]
+crons = ["0 1,4,6,14,15 * * 2-6", "15 6 * * 2-6", "30,50 19-21 * * 2-6"]
 
 [[queues.producers]]
 binding = "NOTIFICATION_QUEUE"
